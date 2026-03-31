@@ -1,6 +1,6 @@
 import json
 import logging
-from ..state import AgentState
+from src.agent.state import AgentState
 from src.hanoi_water_db import get_engine
 from sqlalchemy import text
 
@@ -14,7 +14,7 @@ async def load_memory(state: AgentState) -> dict:
     
     if not engine:
         logger.warning("Database engine not initialized. Skipping memory load.")
-        return {"long_term_context": ""}
+        return {"long_term_context": "Không có dữ liệu người dùng (DB Offline)."}
 
     try:
         with engine.connect() as conn:
@@ -23,12 +23,17 @@ async def load_memory(state: AgentState) -> dict:
             
             if val:
                 if isinstance(val, str): val = json.loads(val)
-                context = f"THÔNG TIN NGƯỜI DÙNG: Tên: {val.get('name', 'Chưa rõ')}, Vai trò: {val.get('role', 'Quản lý')}, Vùng quản lý: {', '.join(val.get('managed_dmas', []))}"
+                # Format into a professional context string for the LLM
+                context = (
+                    f"DANH TÍNH: {val.get('name', 'Ẩn danh')}. "
+                    f"VAI TRÒ: {val.get('role', 'Nhân viên vận hành')}. "
+                    f"PHẠM VI QUẢN LÝ: {', '.join(val.get('managed_dmas', [])) if val.get('managed_dmas') else 'Toàn hệ thống'}."
+                )
                 return {"long_term_context": context}
     except Exception as e:
         logger.warning(f"Could not load memory: {e}")
         
-    return {"long_term_context": ""}
+    return {"long_term_context": "Người dùng mới (Chưa có Profile)."}
 
 async def save_memory(state: AgentState) -> dict:
     user_id = state.get("user_id", "default_user")
@@ -37,13 +42,20 @@ async def save_memory(state: AgentState) -> dict:
     if len(messages) < 2: return state
 
     try:
-        # Use a temporary LLM instance if needed, or pass it in state
-        # In the new framework, we can import from src.llm
-        from src.llm.litellm import LiteLLMBackend
+        from src.llm.langchain_adapter import LangchainLiteLLM
         import os
-        # We need a model ID, defaulting to a common one
-        model_id = os.getenv("WATSONX_MODEL_ID", "watsonx/meta-llama/llama-4-maverick-17b-128e-instruct-fp8")
-        llm = LiteLLMBackend(model_id)
+        
+        # Skip for mock users to avoid API errors during tests
+        if user_id.startswith("mock_"):
+            logger.info("Skipping real memory save for mock user.")
+            return state
+            
+        model_id = os.getenv("LLM_MODEL_NAME", "Qwen/Qwen3-8B")
+        # Ensure API key is set for LiteLLM (it often expects OPENAI_API_KEY for custom endpoints)
+        if "LITELLM_API_KEY" in os.environ and "OPENAI_API_KEY" not in os.environ:
+             os.environ["OPENAI_API_KEY"] = os.environ["LITELLM_API_KEY"]
+             
+        llm = LangchainLiteLLM(model_id=model_id)
         
         extract_prompt = f"""Phân tích hội thoại và trích xuất thông tin cá nhân người dùng.
         
@@ -56,7 +68,7 @@ Trả về DUY NHẤT JSON (nếu không có thông tin mới, trả về {{}}):
   "managed_dmas": ["Mã DMA họ quản lý - ví dụ: 17-TL"]
 }}
 """
-        res = llm.invoke(extract_prompt)
+        res = await llm.ainvoke(extract_prompt)
         try:
              import re
              content = res.content

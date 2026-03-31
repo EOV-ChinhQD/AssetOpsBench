@@ -15,8 +15,10 @@ class LangchainLiteLLM(BaseChatModel):
     backend: LiteLLMBackend = Field(exclude=True)
     
     def __init__(self, model_id: str, **kwargs):
-        if not model_id.startswith("watsonx/") and not model_id.startswith("openai/"):
-            model_id = f"openai/{model_id}"
+        # Allow multi-provider prefixes (openai/, gemini/, watsonx/, etc.)
+        # Default to openai/ ONLY if no prefix is provided
+        if "/" not in model_id:
+             model_id = f"openai/{model_id}"
         super().__init__(model_id=model_id, backend=LiteLLMBackend(model_id), **kwargs)
         
     def _generate(

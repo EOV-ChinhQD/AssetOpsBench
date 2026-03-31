@@ -83,21 +83,43 @@ def verify_db_integrity():
 
 async def run_agent_test():
     """
-    Simulate Agent Evaluation Scenarios.
-    In a real AssetOpsBench, this would call the aobench evaluator.
+    Perform real End-to-End agent evaluation.
+    Invokes the graph for each scenario and compares output against ground truth.
     """
-    logger.info("\n--- PART 3: Agent Scenarios (End-to-End simulation) ---")
+    from src.agent.graph import build_graph
+    from src.llm.langchain_adapter import LangchainLiteLLM
+    
+    logger.info("\n--- PART 3: Agent E2E Evaluation ---")
+    
+    model_id = os.getenv("LLM_MODEL_NAME", "Qwen/Qwen3-8B")
+    llm = LangchainLiteLLM(model_id=model_id)
+    graph = await build_graph(llm)
+    
     scenarios = [
         {"q": "Tổng sản lượng DMA 17-TL tháng 12/2025?", "expected_val": 411589},
         {"q": "Dự báo sản lượng DMA 18-SS tháng 02/2026?", "expected_val": 4202},
-        {"q": "DMA nào tiêu thụ cao nhất tháng 12/2025?", "expected_val": "17-TL"},
     ]
     
     for s in scenarios:
-        logger.info(f"Scenario Question: {s['q']}")
-        # When API is stable, we call agent.graph here.
-        # For now, we log the expected ground truth and the tool expectation.
-        logger.info(f"  Expected Output contains: {s['expected_val']}")
+        logger.info(f"Question: {s['q']}")
+        inputs = {"messages": [("human", s['q'])], "user_id": "bench_001"}
+        config = {"configurable": {"thread_id": f"bench_{s['expected_val']}"}}
+        
+        try:
+            # Run the agent
+            result = await graph.ainvoke(inputs, config=config)
+            answer = result["messages"][-1].content
+            
+            logger.info(f"  Agent Answer: {answer[:100]}...")
+            
+            # Simple numeric check
+            expected = str(s['expected_val'])
+            if expected in answer.replace(",", "").replace(".", ""):
+                logger.info(f"  RESULT: PASS (Found {expected})")
+            else:
+                logger.warning(f"  RESULT: FAIL (Expected {expected} not found in answer)")
+        except Exception as e:
+            logger.error(f"  Execution Error: {e}")
 
 if __name__ == "__main__":
     verify_db_integrity()

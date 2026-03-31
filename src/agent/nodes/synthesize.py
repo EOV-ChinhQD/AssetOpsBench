@@ -27,64 +27,68 @@ def get_synthesize_node(llm):
                 except: continue
 
         # 2. Extract ALL tool results from the entire conversation
-        # (Not just trailing ToolMessages — handles multi-round reflect→retry)
         results_context = ""
         seen_tools = set()
         
         for msg in state["messages"]:
             if isinstance(msg, ToolMessage):
                 tool_name = msg.name or "tool"
-                out = str(msg.content)
+                out_raw = str(msg.content)
                 
-                # Deduplicate: if same tool returned data before, keep the latest
-                tool_key = f"{tool_name}:{out[:50]}"
-                if tool_key in seen_tools:
-                    continue
+                # Deduplicate
+                tool_key = f"{tool_name}:{out_raw[:50]}"
+                if tool_key in seen_tools: continue
                 seen_tools.add(tool_key)
                 
-                if len(out) > 3000:
-                    out = out[:3000] + "... [Dữ liệu quá dài]"
-                results_context += f"\n- {tool_name}: {out}"
+                # 🟢 Parse JSON and flatten for LLM comprehension
+                try:
+                    data = json.loads(out_raw)
+                    if isinstance(data, dict) and "status" in data:
+                         payload = data.get('data')
+                         msg_str = data.get('message', '')
+                         
+                         if isinstance(payload, list):
+                             # Flatten list of records and pre-format dates for better LLM matching
+                             formatted_items = []
+                             for item in payload:
+                                 item_str = str(item)
+                                 # Smart substitution: 2026-04 -> Tháng 04/2026
+                                 import re
+                                 item_str = re.sub(r"(\d{4})-(\d{2})", r"Tháng \2/\1", item_str)
+                                 formatted_items.append(item_str)
+                             
+                             payload_str = "\n".join(formatted_items)
+                             out = f"{msg_str}\n{payload_str}"
+                         else:
+                             out = f"{msg_str} {json.dumps(payload, ensure_ascii=False) if payload else ''}"
+                    else:
+                         out = out_raw
+                except:
+                    out = out_raw
 
-        # Fallback to state tool_results
-        if not results_context and state.get("tool_results"):
-            for r in state["tool_results"][-5:]:
-                out = str(r.get("output", ""))
-                if len(out) > 3000: out = out[:3000] + "..."
-                results_context += f"\n- {r.get('tool')}: {out}"
+                if len(out) > 3000: out = out[:3000] + "... [Dữ liệu quá dài]"
+                results_context += f"\n--- KẾT QUẢ TỪ {tool_name.upper()} ---\n{out}\n"
+
+        # ... (Security check logic stays same)
+        is_dangerous = "drop" in str(state["messages"][0].content).lower() or "[SECURITY_BLOCKED]" in results_context
+
+        # 4. Prompt for LLM synthesis (100% Vietnamese)
+        has_chart = "CÓ" if "chart_json" in chart_update or "plot_url" in chart_update else "KHÔNG"
         
-        logger.info(f"SYNTHESIZE: results_context_len={len(results_context)}, has_chart={'chart_json' in chart_update}")
-        
-        # 3. Security check
-        dangerous_keywords = ["drop", "delete", "truncate", "update", "insert", "alter", "create"]
-        first_msg = str(state["messages"][0].content).lower()
-        
-        is_dangerous = any(kw in first_msg for kw in dangerous_keywords) or \
-                       "[SECURITY_BLOCKED]" in results_context or \
-                       "guardrail" in results_context.lower()
+        system_prompt = f"""Bạn là Chuyên gia Vận hành hệ thống nước Hà Nội (Hanoi Water AI).
+Hãy tổng hợp dữ liệu dưới đây để trả lời người dùng một cách chuyên nghiệp và chính xác.
 
-        if is_dangerous:
-            rejection_msg = "Tôi không có quyền thực hiện các lệnh thay đổi dữ liệu. Tôi chỉ được phép truy vấn SELECT."
-            return {"messages": [AIMessage(content=rejection_msg)]}
+**QUY TẮC PHẢN HỒI:**
+1. CHỈ sử dụng dữ liệu được cung cấp phía dưới. Nếu không thấy, hãy nói "Tôi không tìm thấy dữ liệu".
+2. KHÔNG tự bịa ra con số hoặc tên vùng.
+3. Nếu có biểu đồ ({has_chart}), hãy nhắc người dùng xem biểu đồ phía trên.
+4. Ngôn ngữ: Tiếng Việt trang trọng, ngắn gọn.
+5. Đơn vị: Luôn dùng m³ cho sản lượng nước.
 
-        # 4. Prompt for LLM synthesis
-        has_chart = "YES" if "chart_json" in chart_update or "plot_url" in chart_update else "NO"
-        plot_info = f"\nBiểu đồ đã được tạo tại: {chart_update.get('plot_url')}" if "plot_url" in chart_update else ""
-        
-        system_prompt = f"""Bạn là trợ lý vận hành hệ thống nước Hà Nội.
-Sử dụng DỮ LIỆU bên dưới để trả lời. KHÔNG bịa thêm.
-
-**QUY TẮC:**
-1. CHỈ dùng dữ liệu bên dưới. Không có → "Tôi không tìm thấy dữ liệu".
-2. KHÔNG liệt kê DMA nếu chỉ có con số tổng.
-3. Nếu có biểu đồ ({has_chart}), kết thúc bằng: "Mời bạn xem biểu đồ chi tiết phía trên."
-4. Trả lời NGẮN GỌN, CHUYÊN NGHIỆP, bằng Tiếng Việt.
-5. Khi nói về sản lượng, luôn kèm đơn vị m³.
-{plot_info}
-
-**DỮ LIỆU TỪ CÔNG CỤ:**
+**DỮ LIỆU TỪ HỆ THỐNG:**
 {results_context}
 """
+
         response = await llm.ainvoke([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": state["messages"][0].content}

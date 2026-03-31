@@ -7,17 +7,26 @@ from mcp import StdioServerParameters
 
 logger = logging.getLogger(__name__)
 
-# Root of the repo for uv run commands
-REPO_ROOT = Path(__file__).parent.parent
+# Root of the repo for uv run commands (should be the directory containing pyproject.toml)
+REPO_ROOT = Path(__file__).parent.parent.parent
 
 async def call_mcp_tool(server_name: str, tool_name: str, args: dict) -> str:
     """
-    Connects to an MCP server and calls a tool.
-    server_name: name registered in pyproject.toml (e.g. 'hanoi_water-mcp-server')
+    Connects to an MCP server and calls a tool, with Redis caching.
     """
+    from src.agent.utils.cache import get_tool_cache, set_tool_cache
+    
+    # 🟢 REDIS: Check Tool Cache
+    cached_res = get_tool_cache(tool_name, args)
+    if cached_res:
+         return cached_res
+
+    # Default script path for Hanoi Water server
+    script_path = "src/servers/hanoi_water/main.py" if server_name == "hanoi_water-mcp-server" else server_name
+
     params = StdioServerParameters(
         command="uv",
-        args=["run", server_name],
+        args=["run", script_path],
         cwd=str(REPO_ROOT),
     )
     
@@ -26,7 +35,13 @@ async def call_mcp_tool(server_name: str, tool_name: str, args: dict) -> str:
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, args)
-                return "\n".join(getattr(item, "text", str(item)) for item in result.content)
+                text_res = "\n".join(getattr(item, "text", str(item)) for item in result.content)
+                
+                # 🔵 REDIS: Store valid results (1h TTL)
+                if text_res and "error" not in text_res.lower() and "lỗi" not in text_res.lower():
+                    set_tool_cache(tool_name, args, text_res, ttl=3600)
+                    
+                return text_res
     except Exception as e:
         logger.error(f"Error calling MCP tool {tool_name} on {server_name}: {e}")
         return f"Error: {str(e)}"

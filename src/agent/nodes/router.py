@@ -5,8 +5,8 @@ import logging
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
-from ..state import AgentState
-from ..mcp_client import call_mcp_tool
+from src.agent.state import AgentState
+from src.agent.mcp_client import call_mcp_tool
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,8 @@ class SqlQueryInput(BaseModel):
 class HistoricalInput(BaseModel):
     dma_id: str = Field(description="Mã DMA")
     months: int = Field(default=12, description="Số tháng lùi lại")
+    year: int = Field(default=None, description="Năm cụ thể")
+    month: int = Field(default=None, description="Tháng cụ thể")
 
 class ForecastInput(BaseModel):
     dma_id: str = Field(description="Mã DMA")
@@ -42,17 +44,19 @@ mcp_text_to_sql = StructuredTool.from_function(
     args_schema=SqlQueryInput
 )
 
-mcp_historical = StructuredTool.from_function(
-    name="get_historical_analysis",
-    description="Phân tích lịch sử tiêu thụ nước.",
-    coroutine=lambda dma_id, months=12: call_mcp_tool(HANOI_SERVER, "get_historical_analysis", {"dma_id": dma_id, "months": months}),
+mcp_history = StructuredTool.from_function(
+    name="get_history",
+    description="Lấy dữ liệu sản lượng nước cho 1 DMA (m3).",
+    coroutine=lambda dma_id, months=12, year=None, month=None: call_mcp_tool(
+        HANOI_SERVER, "get_history", {"dma_id": dma_id, "months": months, "year": year, "month": month}
+    ),
     args_schema=HistoricalInput
 )
 
 mcp_forecast = StructuredTool.from_function(
-    name="get_forecast_analysis",
-    description="Lấy dự báo tiêu thụ nước.",
-    coroutine=lambda dma_id, horizon=3: call_mcp_tool(HANOI_SERVER, "get_forecast_analysis", {"dma_id": dma_id, "horizon": horizon}),
+    name="get_forecast",
+    description="Lấy dự báo sản lượng nước cho 1 DMA (m3).",
+    coroutine=lambda dma_id, horizon=3: call_mcp_tool(HANOI_SERVER, "get_forecast", {"dma_id": dma_id, "horizon": horizon}),
     args_schema=ForecastInput
 )
 
@@ -63,9 +67,9 @@ mcp_plot = StructuredTool.from_function(
 )
 
 # Placeholder tools for now, can be expanded
-tools = [mcp_dma_info, mcp_text_to_sql, mcp_historical, mcp_forecast, mcp_plot]
+tools = [mcp_dma_info, mcp_text_to_sql, mcp_history, mcp_forecast, mcp_plot]
 
-from ..trajectory_store import trajectory_store
+from src.agent.trajectory_store import trajectory_store
 
 def get_router_node(llm):
     async def router(state: AgentState) -> dict:
@@ -129,8 +133,8 @@ Hãy thực hiện theo kế hoạch này. BẠN PHẢI GỌI TOOL để lấy d
             elif isinstance(msg, SystemMessage): processed_messages.append(SystemMessage(content=content))
             else: processed_messages.append(msg)
 
-        # 2. Strategic Trimming
-        max_history = 10
+        # 2. Strategic Trimming - Increase for complex industrial tasks
+        max_history = 50
         start_idx = max(0, len(processed_messages) - max_history)
         while start_idx > 0 and isinstance(processed_messages[start_idx], ToolMessage):
             start_idx -= 1
@@ -146,14 +150,29 @@ Hãy thực hiện theo kế hoạch này. BẠN PHẢI GỌI TOOL để lấy d
         final_tool_calls = []
         source_calls = response.tool_calls or []
         
-        # Fallback: extract JSON blocks if native tool calling failed
+        # Fallback: extract JSON blocks or [tool_call] tags
         if not source_calls and response.content:
+            # Standard markdown blocks
             blocks = re.findall(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", response.content, re.DOTALL)
             for b in blocks:
                 try:
                     data = json.loads(b.strip())
                     source_calls.extend(data if isinstance(data, list) else [data])
                 except: pass
+            
+            # 🟢 [tool_call] name {args} format (common in some Qwen/Coder models)
+            tc_matches = re.findall(r"\[tool_call\]\s*(\w+)\s*(\{.*?\})", response.content, re.DOTALL)
+            for name, args_str in tc_matches:
+                 try:
+                     # Replace single quotes with double quotes for valid JSON
+                     args_json = args_str.replace("'", '"')
+                     final_tool_calls.append({
+                         "name": name,
+                         "args": json.loads(args_json),
+                         "id": f"call_{uuid.uuid4().hex[:8]}",
+                         "type": "tool_call"
+                     })
+                 except: pass
 
         for call in source_calls:
             if not isinstance(call, dict): continue
@@ -161,6 +180,8 @@ Hãy thực hiện theo kế hoạch này. BẠN PHẢI GỌI TOOL để lấy d
             if not name: continue
             
             raw_args = call.get("args") or call.get("arguments") or {}
+            # (Hacks removed - names are now unified)
+
             if name == "text_to_sql":
                 q = raw_args.get("question") or raw_args.get("query") or str(raw_args)
                 normalized_args = {"question": q}

@@ -6,14 +6,14 @@ import re
 import logging
 import os
 
-from .state import AgentState
-from .nodes.router import tools, get_router_node
-from .nodes.reflect import get_reflect_node
-from .nodes.synthesize import get_synthesize_node
-from .nodes.human_review import human_review
-from .nodes.memory import load_memory, save_memory
-from .nodes.classify_intent import get_classify_intent_node
-from .nodes.think import get_think_node
+from src.agent.state import AgentState
+from src.agent.nodes.router import tools, get_router_node
+from src.agent.nodes.reflect import get_reflect_node
+from src.agent.nodes.synthesize import get_synthesize_node
+from src.agent.nodes.human_review import human_review
+from src.agent.nodes.memory import load_memory, save_memory
+from src.agent.nodes.classify_intent import get_classify_intent_node
+from src.agent.nodes.think import get_think_node
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +57,13 @@ def collect_results(state: AgentState) -> dict:
     resolved_dma = state.get("resolved_dma", {})
     for res in results:
         if res["tool"] == "get_dma_info":
-            match = re.search(r"XÁC NHẬN DMA:\s*([A-Z0-9-]+)", res["output"])
-            if match:
-                dma_id = match.group(1)
-                resolved_dma[dma_id] = dma_id 
+            try:
+                data = json.loads(res["output"])
+                if data.get("status") == "success" and "dma_id" in data.get("data", {}):
+                    dma_id = data["data"]["dma_id"]
+                    resolved_dma[dma_id] = dma_id
+            except:
+                pass
 
     return {
         "tool_results": results, 
@@ -91,20 +94,25 @@ def route_after_reflect(state: AgentState) -> str:
     retry_count = state.get("retry_count", 0)
     
     if verdict == "pass":
-        logger.info(f"ROUTE: reflect → synthesize (verdict=pass)")
-        return "synthesize"
+        # 🟢 If the last tool was successful, ALWAYS go back to router 
+        # to let the model decide if it needs more tools or can synthesize.
+        logger.info(f"ROUTE: reflect → router (success, checking for next steps)")
+        return "router"
     if retry_count >= 2:
         logger.info(f"ROUTE: reflect → synthesize (retry_count={retry_count} >= 2, forcing)")
         return "synthesize"
     logger.info(f"ROUTE: reflect → router (verdict={verdict}, retry={retry_count}, notes='{state.get('reflect_notes', '')[:80]}')")
     return "router"
 
-async def build_graph(llm, db_path=None):
-    if db_path is None:
-        log_dir = os.path.join(os.getcwd(), "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        db_path = os.path.join(log_dir, "water_ai_checkpoints.db")
+def route_after_classify(state: AgentState) -> str:
+    intent = state.get("intent", "GENERAL")
+    if intent in ["GREETING", "GENERAL"]:
+        logger.info(f"ROUTE: classify_intent → synthesize (Short-circuit for {intent})")
+        return "synthesize"
+    return "think"
 
+async def build_graph(llm, db_path=None):
+    # ... (existing setup code stays same)
     workflow = StateGraph(AgentState)
 
     workflow.add_node("load_memory", load_memory)
@@ -120,7 +128,17 @@ async def build_graph(llm, db_path=None):
 
     workflow.set_entry_point("load_memory")
     workflow.add_edge("load_memory", "classify_intent")
-    workflow.add_edge("classify_intent", "think")
+    
+    # 🟢 Phase 2: Short-circuit conditional edge
+    workflow.add_conditional_edges(
+        "classify_intent",
+        route_after_classify,
+        {
+            "synthesize": "synthesize",
+            "think": "think"
+        }
+    )
+    
     workflow.add_edge("think", "router")
 
     workflow.add_conditional_edges(
@@ -146,8 +164,20 @@ async def build_graph(llm, db_path=None):
     workflow.add_edge("synthesize", "save_memory")
     workflow.add_edge("save_memory", END)
 
-    from langgraph.checkpoint.memory import MemorySaver
-    cp = MemorySaver()
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg_pool import AsyncConnectionPool
+    
+    # 🟢 Persistence: Use Async Postgres for reliable session storage
+    connection_string = os.getenv("HANOI_WATER_DB_URL")
+    if not connection_string:
+         # Fallback for local testing if env not loaded
+         connection_string = "postgresql://user:pass@localhost:5433/hanoiwatertb"
+
+    pool = AsyncConnectionPool(conninfo=connection_string, max_size=10, kwargs={"autocommit": True}, open=False)
+    await pool.open()
+    cp = AsyncPostgresSaver(pool)
+    # Important: setup() creates the required tables if they don't exist
+    await cp.setup()
     
     graph = workflow.compile(
         checkpointer=cp,
