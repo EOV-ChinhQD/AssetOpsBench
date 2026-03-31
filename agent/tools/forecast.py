@@ -1,13 +1,13 @@
 import json
 import asyncio
-from langchain_core.tools import Tool
+
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+
 from src.api.server.agent.tools.historical import parse_tool_input
 from src.api.server.tools.executors.forecast_executor import execute_forecast
 from src.api.server.tools.contracts import ForecastRequest
 from src.api.server.deps import get_forecasting_service_dep, get_long_term_service_dep, get_model_dep, get_repo_dep
-
-from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
 
 class ForecastInput(BaseModel):
     dma_id: str = Field(description="Mã DMA cụ thể (ví dụ: 17-TL)")
