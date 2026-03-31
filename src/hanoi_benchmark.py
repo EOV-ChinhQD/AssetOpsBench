@@ -60,12 +60,46 @@ def verify_db_integrity():
                      logger.warning("  RESULT: MISMATCH")
         except Exception as e:
             logger.error(f"Integrity check failed for {dma}: {e}")
+    # --- PART 2: Forecast Integrity (Gold Table) ---
+    logger.info("--- PART 2: Forecast Integrity (Gold Table) ---")
+    forecast_cases = [
+        ("18-SS", "2026-02"),
+        ("10-PT", "2026-02"),
+        ("05-VH", "2026-02"),
+    ]
+    
+    for dma, ym in forecast_cases:
+        try:
+            with engine.connect() as conn:
+                sql = text("SELECT predicted_demand FROM gold.fct_predictions_unified WHERE madma = :dma AND year_month = :ym")
+                db_val = conn.execute(sql, {"dma": dma, "ym": ym}).scalar()
+                
+                if db_val:
+                    logger.info(f"Check Forecast {dma} @ {ym}: predicted_demand={db_val} m³ [OK]")
+                else:
+                    logger.warning(f"Check Forecast {dma} @ {ym}: NO DATA FOUND in Gold table.")
+        except Exception as e:
+            logger.error(f"Gold table check failed: {e}")
 
 async def run_agent_test():
-    # Placeholder for running an orchestration session and checking the final answer
-    # This will be expanded once the LLM API is stable
-    logger.info("Agent test simulation starting...")
-    pass
+    """
+    Simulate Agent Evaluation Scenarios.
+    In a real AssetOpsBench, this would call the aobench evaluator.
+    """
+    logger.info("\n--- PART 3: Agent Scenarios (End-to-End simulation) ---")
+    scenarios = [
+        {"q": "Tổng sản lượng DMA 17-TL tháng 12/2025?", "expected_val": 411589},
+        {"q": "Dự báo sản lượng DMA 18-SS tháng 02/2026?", "expected_val": 4202},
+        {"q": "DMA nào tiêu thụ cao nhất tháng 12/2025?", "expected_val": "17-TL"},
+    ]
+    
+    for s in scenarios:
+        logger.info(f"Scenario Question: {s['q']}")
+        # When API is stable, we call agent.graph here.
+        # For now, we log the expected ground truth and the tool expectation.
+        logger.info(f"  Expected Output contains: {s['expected_val']}")
 
 if __name__ == "__main__":
     verify_db_integrity()
+    import asyncio
+    asyncio.run(run_agent_test())

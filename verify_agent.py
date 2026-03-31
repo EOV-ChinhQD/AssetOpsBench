@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).parent.resolve()
 sys.path.append(str(REPO_ROOT / "src"))
 sys.path.append(str(REPO_ROOT))
 
-from agent.graph import build_graph
+from src.agent.graph import build_graph
 from src.llm.langchain_adapter import LangchainLiteLLM
 
 load_dotenv()
