@@ -29,7 +29,11 @@ class LiteLLMBackend(LLMBackend):
     """
 
     def __init__(self, model_id: str) -> None:
-        self._model_id = model_id
+        if not model_id.startswith("watsonx/") and not "/" in model_id.split(":")[0] and not model_id.startswith("openai/"):
+             # If it's a custom endpoint, LiteLLM often needs the provider prefix
+             self._model_id = f"openai/{model_id}"
+        else:
+             self._model_id = model_id
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
         import litellm

@@ -201,3 +201,9 @@ mcp/couchdb/sample_data/bulk_docs.json
 .env
 mcp/servers/tsfm/artifacts/tsfm_models/
 src/tmp/
+
+# Local Hanoi Water artifacts (logs, plots, sqlite, CSV samples)
+logs/
+plots/
+hanoi_water.db
+DataHN2*.csv
