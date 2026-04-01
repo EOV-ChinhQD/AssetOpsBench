@@ -70,7 +70,7 @@ async def _text_to_sql_logic(question: str) -> str:
     if not engine:
         return wrap_tool_result("error", None, "Chưa cấu hình Database.")
 
-    model_id = os.getenv("LLM_MODEL_NAME", "Qwen/Qwen3.5-9B")
+    model_id = os.getenv("LITELLM_MODEL_NAME", "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ")
     llm = LiteLLMBackend(model_id)
     
     # ... (detect_tables logic stays same)
@@ -125,7 +125,7 @@ async def _plot_dma_logic(dma_id: str, include_forecast: bool = True) -> str:
 
 @mcp.tool()
 async def get_dma_info(dma_query: str) -> str:
-    """Xác thực mã hiệu DMA (madma) từ chuỗi nhập vào."""
+    """Xác thực mã hiệu cho MỘT DMA duy nhất khi bắt đầu tra cứu."""
     return await _get_dma_info_logic(dma_query)
 
 @mcp.tool()

@@ -16,8 +16,9 @@ Nhiệm vụ: Phân loại ý định của người dùng để điều hướn
 1. **GREETING**: Chào hỏi xã giao, cảm ơn, tạm biệt.
 2. **GENERAL**: Các câu hỏi chung không liên quan đến dữ liệu (VD: "Bạn là ai?", "Bạn làm được gì?").
 3. **GLOBAL**: Hỏi về toàn bộ hệ thống (VD: "Tổng sản lượng?", "Vùng tốt nhất?").
-4. **SPECIFIC**: Truy vấn về một hoặc nhiều DMA/vùng cụ thể. (LƯU Ý: Nếu người dùng nói "Vùng của tôi", hãy dựa vào 'PHẠM VI QUẢN LÝ' trong bối cảnh phía trên để coi là SPECIFIC).
-5. **HYBRID**: Câu hỏi chung nhưng kèm theo lọc vùng (VD: "Có vùng nào hỏng không?").
+4. **SPECIFIC**: Truy vấn dữ liệu cho 1-3 DMA cụ thể (VD: "Sản lượng 01-LB?").
+5. **ANALYTICAL**: Đếm số lượng, thống kê, so sánh nhiều vùng (VD: "Có bao nhiêu DMA?", "Danh sách vùng mã 01?").
+6. **HYBRID**: Kết hợp nhiều loại tinh vi.
 
 ### QUY TẮC TRẢ VỀ JSON:
 {{

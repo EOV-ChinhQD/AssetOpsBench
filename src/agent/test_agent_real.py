@@ -22,8 +22,8 @@ async def run_test(query: str, thread_id: str = None):
     if not thread_id:
         import time
         thread_id = f"victory_{int(time.time())}"
-    # The model name in vLLM is exactly the path passed to --model
-    model_name = "openai//media/chinh303/New Volume2/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a"
+    # Correct model name based on vLLM ps aux output
+    model_name = "openai//media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a"
     
     print(f"\n--- Testing Agent with Query: '{query}' ---")
     
@@ -61,15 +61,20 @@ async def run_mock_test(query: str):
     class MockLLM(BaseChatModel):
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             text = messages[-1].content.lower()
-            if "chào" in text:
-                return ChatResult(generations=[ChatGeneration(message=AIMessage(content=json.dumps({"intent": "GREETING", "requires_lookup": False})))])
-            # Default to text_to_sql for anything else
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Kế hoạch: Lấy dữ liệu SQL.", tool_calls=[{
-                "name": "text_to_sql",
-                "args": {"question": query},
-                "id": "call_1",
-                "type": "tool_call"
-            }]))])
+            if "chào" in text or "dma" in text:
+                decision = {
+                    "internal_monologue": "Người dùng muốn biết thông tin về DMA. Tôi sẽ tổng hợp câu trả lời.",
+                    "tool_plan": [],
+                    "next_node": "synthesize"
+                }
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content=json.dumps(decision)))])
+            # Default fallback
+            decision = {
+                "internal_monologue": "Tôi chưa hiểu rõ yêu cầu, tôi sẽ trả lời trực tiếp.",
+                "tool_plan": [],
+                "next_node": "synthesize"
+            }
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=json.dumps(decision)))])
         def bind_tools(self, tools, **kwargs): return self
         @property
         def _llm_type(self): return "mock"

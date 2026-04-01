@@ -29,8 +29,13 @@ class LiteLLMBackend(LLMBackend):
     """
 
     def __init__(self, model_id: str) -> None:
-        if not model_id.startswith("watsonx/") and not "/" in model_id.split(":")[0] and not model_id.startswith("openai/"):
-             # If it's a custom endpoint, LiteLLM often needs the provider prefix
+        # If it starts with / it is an absolute path, not a provider string
+        needs_prefix = (
+            not model_id.startswith("watsonx/") and 
+            not model_id.startswith("openai/") and 
+            (not "/" in model_id.split(":")[0] or model_id.startswith("/"))
+        )
+        if needs_prefix:
              self._model_id = f"openai/{model_id}"
         else:
              self._model_id = model_id

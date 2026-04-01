@@ -8,37 +8,33 @@ def add_results(left: list, right: list):
     return left + right
 
 class AgentState(TypedDict):
-    # Conversation
+    # Core Loop (Message-centric)
     messages: Annotated[list[BaseMessage], add_messages]
     thread_id: str
     user_id: str
 
-    # Intent Classification (New from ReActXen)
-    intent: Optional[str]           # GLOBAL | SPECIFIC | HYBRID
-    mentioned_dmas: list[str]       # Raw names from query
-    requires_lookup: bool           # True if lookup tool needed
+    # Decision & Thinking (Replaces hardcoded intent/think stages)
+    thought: Optional[str]          # [INTERNAL_MONOLOGUE] - Hidden reasoning for the agent
+    tool_plan: list[str]            # Sequence of tools to execute (optional hint)
+    next_node: str                  # Dynamically decided by LLM: 'tools' | 'synthesize' | 'human_review'
     
-    # Reasoning (Think-before-Act)
-    thought: Optional[str]          # Explicit reasoning
-    tool_plan: list[dict]           # Sequence of tools to execute
-
-    # Tool execution
+    # Tool execution & Data
     tool_results: list[dict]
-    pending_confirm: bool       # flag cho human-in-loop
-    pending_sql: Optional[str]   # SQL generated/pending for review
-    pending_question: Optional[str] # Original question for pending SQL
     plot_url: Optional[str]
-    chart_json: Optional[dict]   # Vega-Lite / Plotly JSON
-    chart_type: Optional[str]    # "vegalite" | "plotly"
+    chart_json: Optional[dict]
+    chart_type: Optional[str]
 
-    # Reflection
-    retry_count: int            # số lần reflect đã chạy
-    reflect_verdict: str        # "pass" | "retry"
-    reflect_notes: str          # lý do retry, hint cho router
-
-    # Context từ long-term memory
-    long_term_context: str      # inject vào đầu conversation
-    resolved_dma: dict          # Cache mã DMA đã xác thực: {query: id}
-
+    # Context & Persistent Memory
+    long_term_context: str
+    resolved_dma: dict              # Cache: {query: id}
+    
+    # Compaction & Boundary
+    compact_boundary: int           # Index for context compaction
+    
+    # State Management
+    retry_count: int
+    reflect_verdict: str            # "pass" | "retry"
+    reflect_notes: str
+    
     # Error handling
     error: Optional[str]

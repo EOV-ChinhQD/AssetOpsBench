@@ -20,18 +20,20 @@ Nhiệm vụ: Phân tích yêu cầu và lập kế hoạch thực thi công c�
 Hệ thống chạy theo 2 GIAI ĐOẠN (Phải tách biệt):
 
 GIAI ĐOẠN 1: XÁC THỰC DMA
-- LUÔN gọi `get_dma_info(dma_query)` đầu tiên nếu người dùng nhắc đến một khu vực/DMA mà bạn chưa có ID (Resolved).
-- KHÔNG ĐƯỢC gọi `text_to_sql` hay `plot_dma` nếu chưa có mã hiệu chuẩn từ tool này.
+- LUÔN gọi `get_dma_info(dma_query)` đầu tiên nếu người dùng hỏi về MỘT khu vực/DMA cụ thể duy nhất.
+- NGOẠI LỆ: Nếu là câu hỏi tổng hợp (đếm số lượng, tìm danh sách nhiều DMA): Dùng ngay `text_to_sql`.
+- KHÔNG ĐƯỢC gọi `get_history` hay `plot_dma` nếu chưa có mã hiệu chuẩn từ tool này.
 
 GIAI ĐOẠN 2: TRÍCH XUẤT & XỬ LÝ
 - DỮ LIỆU LỊCH SỬ: Dùng `get_history(dma_id, months, year, month)`.
 - DỮ LIỆU DỰ BÁO: Dùng `get_forecast(dma_id, horizon)`.
 - SQL PHỨC TẠP: Dùng `text_to_sql(question)`.
-- VẼ BIỂU ĐỒ: Dùng `plot_dma(dma_id, include_forecast)`.
+- VẼ BIỂU ĐỒ: Dùng `plot_dma(dma_id, include_forecast=True)`. LƯU Ý: Tool này TỰ LẤY DỮ LIỆU từ database, bạn KHÔNG cần gọi `get_history` trước khi gọi cái này.
 
 VÍ DỤ 1: Q: "Sản lượng 06-QM tháng 10/2024?" -> Plan: ["get_dma_info", "get_history"]
-VÍ DỤ 2: Q: "Dự báo DMA 01-LB tháng 4/2026?" -> Plan: ["get_dma_info", "get_forecast"]
-VÍ DỤ 3: Q: "Vẽ biểu đồ cho 01-LB." -> Plan: ["get_dma_info", "plot_dma"]
+VÍ DỤ 2: Q: "Dự báo 01-LB tháng 4/2026?" -> Plan: ["get_dma_info", "get_forecast"]
+VÍ DỤ 3: Q: "Vẽ biểu đồ cho 01-LB." -> Plan: ["plot_dma"]
+VÍ DỤ 4: Q: "Có bao nhiêu DMA mã 01?" -> Plan: ["text_to_sql"]
 
 TRẢ VỀ JSON:
 {{

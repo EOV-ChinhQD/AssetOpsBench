@@ -24,10 +24,12 @@ async def call_mcp_tool(server_name: str, tool_name: str, args: dict) -> str:
     # Default script path for Hanoi Water server
     script_path = "src/servers/hanoi_water/main.py" if server_name == "hanoi_water-mcp-server" else server_name
 
+    import os
     params = StdioServerParameters(
         command="uv",
         args=["run", script_path],
         cwd=str(REPO_ROOT),
+        env=dict(os.environ),
     )
     
     try:

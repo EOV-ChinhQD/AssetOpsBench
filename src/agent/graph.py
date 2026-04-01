@@ -7,15 +7,20 @@ import logging
 import os
 
 from src.agent.state import AgentState
-from src.agent.nodes.router import tools, get_router_node
+from src.agent.nodes.agent_core import get_agent_core_node
 from src.agent.nodes.reflect import get_reflect_node
 from src.agent.nodes.synthesize import get_synthesize_node
 from src.agent.nodes.human_review import human_review
 from src.agent.nodes.memory import load_memory, save_memory
-from src.agent.nodes.classify_intent import get_classify_intent_node
-from src.agent.nodes.think import get_think_node
+from src.agent.compaction import auto_compact
+from src.agent.nodes.router import tools
 
 logger = logging.getLogger(__name__)
+
+def get_compaction_node(llm):
+    async def compaction_node(state: AgentState) -> dict:
+        return await auto_compact(state, llm, threshold=20)
+    return compaction_node
 
 def collect_results(state: AgentState) -> dict:
     """Extracts content from ToolMessages only for the CURRENT turn."""
@@ -24,14 +29,12 @@ def collect_results(state: AgentState) -> dict:
     chart_json = state.get("chart_json")
     chart_type = state.get("chart_type")
     
-    # Process only the suffix of messages that are ToolMessages (latest tool execution batch)
     curr_messages = state["messages"]
     idx = len(curr_messages) - 1
     while idx >= 0 and isinstance(curr_messages[idx], ToolMessage):
         msg = curr_messages[idx]
         results.insert(0, {"tool": msg.name or "unknown", "output": str(msg.content)})
         
-        # Check for chart JSON from plot tool
         if msg.name == "plot":
             try:
                 content_json = json.loads(str(msg.content))
@@ -45,7 +48,6 @@ def collect_results(state: AgentState) -> dict:
                     plot_url = str(msg.content)
         idx -= 1
     
-    # Structured logging for tool results
     for r in results:
         tool_name = r["tool"]
         output_preview = r["output"][:200] if r["output"] else "(empty)"
@@ -53,7 +55,6 @@ def collect_results(state: AgentState) -> dict:
             
     logger.info(f"COLLECT_RESULTS: {len(results)} tool outputs collected, chart={chart_json is not None}")
     
-    # Extract DMA IDs for caching from get_dma_info tool
     resolved_dma = state.get("resolved_dma", {})
     for res in results:
         if res["tool"] == "get_dma_info":
@@ -73,52 +74,27 @@ def collect_results(state: AgentState) -> dict:
         "resolved_dma": resolved_dma
     }
 
-def route_after_router(state: AgentState) -> str:
-    messages = state["messages"]
-    if not messages:
-        return "synthesize"
-    last_msg = messages[-1]
-    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-        tool_name = last_msg.tool_calls[0]["name"]
-        user_id = state.get("user_id", "")
-        if tool_name in ["text_to_sql"] and not user_id.startswith("bench_"):
-            logger.info(f"ROUTE: router → human_review (tool={tool_name})")
-            return "human_review"
-        logger.info(f"ROUTE: router → tool_node (tools={[tc['name'] for tc in last_msg.tool_calls]})")
-        return "tool_node"
-    logger.info("ROUTE: router → synthesize (no tools)")
-    return "synthesize"
+def route_after_core(state: AgentState) -> str:
+    next_node = state.get("next_node", "synthesize")
+    logger.info(f"ROUTE: agent_core → {next_node}")
+    return next_node
 
 def route_after_reflect(state: AgentState) -> str:
     verdict = state.get("reflect_verdict", "pass")
     retry_count = state.get("retry_count", 0)
     
     if verdict == "pass":
-        # 🟢 If the last tool was successful, ALWAYS go back to router 
-        # to let the model decide if it needs more tools or can synthesize.
-        logger.info(f"ROUTE: reflect → router (success, checking for next steps)")
-        return "router"
+        return "compaction"
     if retry_count >= 2:
-        logger.info(f"ROUTE: reflect → synthesize (retry_count={retry_count} >= 2, forcing)")
         return "synthesize"
-    logger.info(f"ROUTE: reflect → router (verdict={verdict}, retry={retry_count}, notes='{state.get('reflect_notes', '')[:80]}')")
-    return "router"
-
-def route_after_classify(state: AgentState) -> str:
-    intent = state.get("intent", "GENERAL")
-    if intent in ["GREETING", "GENERAL"]:
-        logger.info(f"ROUTE: classify_intent → synthesize (Short-circuit for {intent})")
-        return "synthesize"
-    return "think"
+    return "compaction"
 
 async def build_graph(llm, db_path=None):
-    # ... (existing setup code stays same)
     workflow = StateGraph(AgentState)
 
     workflow.add_node("load_memory", load_memory)
-    workflow.add_node("classify_intent", get_classify_intent_node(llm))
-    workflow.add_node("think", get_think_node(llm))
-    workflow.add_node("router", get_router_node(llm))
+    workflow.add_node("compaction", get_compaction_node(llm))
+    workflow.add_node("agent_core", get_agent_core_node(llm, tools))
     workflow.add_node("human_review", human_review)
     workflow.add_node("tool_node", ToolNode(tools))
     workflow.add_node("collect_results", collect_results)
@@ -127,25 +103,14 @@ async def build_graph(llm, db_path=None):
     workflow.add_node("save_memory", save_memory)
 
     workflow.set_entry_point("load_memory")
-    workflow.add_edge("load_memory", "classify_intent")
+    workflow.add_edge("load_memory", "compaction")
+    workflow.add_edge("compaction", "agent_core")
     
-    # 🟢 Phase 2: Short-circuit conditional edge
     workflow.add_conditional_edges(
-        "classify_intent",
-        route_after_classify,
+        "agent_core",
+        route_after_core,
         {
-            "synthesize": "synthesize",
-            "think": "think"
-        }
-    )
-    
-    workflow.add_edge("think", "router")
-
-    workflow.add_conditional_edges(
-        "router",
-        route_after_router,
-        {
-            "tool_node": "tool_node", 
+            "tools": "tool_node", 
             "human_review": "human_review", 
             "synthesize": "synthesize"
         }
@@ -158,10 +123,14 @@ async def build_graph(llm, db_path=None):
     workflow.add_conditional_edges(
         "reflect",
         route_after_reflect,
-        {"synthesize": "synthesize", "router": "router"}
+        {
+            "synthesize": "synthesize", 
+            "agent_core": "agent_core"
+        }
     )
 
     workflow.add_edge("synthesize", "save_memory")
+    workflow.add_edge("save_memory", END)
     workflow.add_edge("save_memory", END)
 
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
