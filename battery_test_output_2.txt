@@ -1,0 +1,200 @@
+INFO: Loading user context for: battery_user_test_hist_06QM
+[92m10:38:50 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: AGENT_CORE DECISION: node=tools | calls=1
+INFO: ROUTE: agent_core → tools
+INFO: TOOL_RESULT: tool=get_dma_info, output_len=142, preview=Error invoking tool 'get_dma_info' with kwargs {'dma_id': '06-QM'} with error:
+ dma_query: Field required
+ Please fix the error and try again.
+INFO: COLLECT_RESULTS: 1 tool outputs collected, chart=False
+INFO: REFLECT_INPUT: retry_count=2, tool_results=1
+[92m10:39:09 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+[92m10:39:15 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: Loading user context for: battery_user_test_norm_05LB
+[92m10:39:16 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: AGENT_CORE DECISION: node=synthesize | calls=0
+INFO: ROUTE: agent_core → synthesize
+[92m10:39:35 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+[92m10:39:42 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: Loading user context for: battery_user_test_forecast_01LB
+[92m10:39:43 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: AGENT_CORE DECISION: node=tools | calls=1
+INFO: ROUTE: agent_core → tools
+INFO: TOOL_RESULT: tool=get_dma_info, output_len=142, preview=Error invoking tool 'get_dma_info' with kwargs {'dma_id': '01-LB'} with error:
+ dma_query: Field required
+ Please fix the error and try again.
+INFO: COLLECT_RESULTS: 1 tool outputs collected, chart=False
+INFO: REFLECT_INPUT: retry_count=2, tool_results=1
+[92m10:40:04 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+[92m10:40:06 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: Loading user context for: battery_user_test_sql_count
+[92m10:40:07 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+
+==================================================
+RUNNING: test_hist_06QM
+QUERY: Sản lượng 06-QM tháng 10 năm 2024 là bao nhiêu?
+EXPECTED: ~8560 m3
+==================================================
+
+[FINAL RESPONSE]: Sản lượng nước của DMA 06-QM trong tháng 10 năm 2024 là 8560.0 m³.
+
+==================================================
+RUNNING: test_norm_05LB
+QUERY: Mã khu vực 05-LB tháng 9/2024 ra bao nhiêu m3?
+EXPECTED: ~95180 m3
+==================================================
+
+[FINAL RESPONSE]: Vào tháng 9 năm 2024, mã khu vực 05-LB đã tiêu thụ được 95,180 m³ nước.
+
+==================================================
+RUNNING: test_forecast_01LB
+QUERY: Dự báo sản lượng DMA 01-LB vào tháng 4 năm 2026?
+EXPECTED: ~34653 m3
+==================================================
+
+[FINAL RESPONSE]: Tôi không tìm thấy dữ liệu.
+
+==================================================
+RUNNING: test_sql_count
+QUERY: Trong hệ thống, có bao nhiêu DMA có mã bắt đầu bằng '01'?
+EXPECTED: ~hàng dữ liệu
+==================================================
+Traceback (most recent call last):
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/src/agent/test_battery.py", line 33, in run_battery
+    async for event in graph.astream(inputs, config=config):
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/pregel/main.py", line 3111, in astream
+    async for _ in runner.atick(
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/pregel/_runner.py", line 304, in atick
+    await arun_with_retry(
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/pregel/_retry.py", line 211, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/_internal/_runnable.py", line 705, in ainvoke
+    input = await asyncio.create_task(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/_internal/_runnable.py", line 473, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/src/agent/nodes/agent_core.py", line 70, in agent_core
+    response = await llm.ainvoke(prompt_messages)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 477, in ainvoke
+    llm_result = await self.agenerate_prompt(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 1196, in agenerate_prompt
+    return await self.agenerate(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 1116, in agenerate
+    results = await asyncio.gather(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langchain_core/language_models/chat_models.py", line 1427, in _agenerate_with_cache
+    result = await self._agenerate(messages, stop=stop, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/src/llm/langchain_adapter.py", line 65, in _agenerate
+    response = await litellm.acompletion(**kwargs_to_pass)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1861, in wrapper_async
+    result = await original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/main.py", line 611, in acompletion
+    response = await init_response
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/llms/openai/openai.py", line 922, in acompletion
+    headers, response = await self.make_openai_chat_completion_request(
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/logging_utils.py", line 190, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/llms/openai/openai.py", line 437, in make_openai_chat_completion_request
+    await openai_aclient.chat.completions.with_raw_response.create(
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/openai/_legacy_response.py", line 384, in wrapped
+    return cast(LegacyAPIResponse[R], await func(*args, **kwargs))
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/openai/resources/chat/completions/completions.py", line 2714, in create
+    return await self._post(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/openai/_base_client.py", line 1884, in post
+    return await self.request(cast_to, opts, stream=stream, stream_cls=stream_cls)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/openai/_base_client.py", line 1604, in request
+    response = await self._client.send(
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 297, in handle_async_request
+    response = await self._make_aiohttp_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 275, in _make_aiohttp_request
+    response = await client_session.request(**request_kwargs).__aenter__()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/aiohttp/client.py", line 1510, in __aenter__
+    self._resp: _RetType = await self._coro
+                           ^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/aiohttp/client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/aiohttp/client.py", line 757, in _connect_and_send_request
+    await resp.start(conn)
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/aiohttp/client_reqrep.py", line 539, in start
+    message, payload = await protocol.read()  # type: ignore[union-attr]
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/aiohttp/streams.py", line 703, in read
+    await self._waiter
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/chinh303/AssetOpsBench/src/agent/test_battery.py", line 39, in <module>
+    asyncio.run(run_battery())
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt

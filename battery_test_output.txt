@@ -1,0 +1,53 @@
+INFO: Loading user context for: battery_user_test_hist_06QM
+[92m10:37:38 - LiteLLM:INFO[0m: utils.py:3889 - 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: 
+LiteLLM completion() model= /media/chinh303/New Volume3/ai_models/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-AWQ/snapshots/8e8ed243bbe6f9a5aff549a0924562fc719b2b8a; provider = openai
+INFO: AGENT_CORE DECISION: node=tools | calls=1
+INFO: ROUTE: agent_core → tools
+INFO: TOOL_RESULT: tool=get_dma_info, output_len=142, preview=Error invoking tool 'get_dma_info' with kwargs {'dma_id': '06-QM'} with error:
+ dma_query: Field required
+ Please fix the error and try again.
+INFO: COLLECT_RESULTS: 1 tool outputs collected, chart=False
+INFO: REFLECT_INPUT: retry_count=2, tool_results=1
+
+==================================================
+RUNNING: test_hist_06QM
+QUERY: Sản lượng 06-QM tháng 10 năm 2024 là bao nhiêu?
+EXPECTED: ~8560 m3
+==================================================
+Traceback (most recent call last):
+  File "/home/chinh303/AssetOpsBench/src/agent/test_battery.py", line 39, in <module>
+    asyncio.run(run_battery())
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/src/agent/test_battery.py", line 33, in run_battery
+    async for event in graph.astream(inputs, config=config):
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/pregel/main.py", line 3111, in astream
+    async for _ in runner.atick(
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/pregel/_runner.py", line 304, in atick
+    await arun_with_retry(
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/pregel/_retry.py", line 211, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/_internal/_runnable.py", line 711, in ainvoke
+    input = await step.ainvoke(input, config)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/_internal/_runnable.py", line 473, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/graph/_branch.py", line 190, in _aroute
+    return self._finish(writer, input, result, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chinh303/AssetOpsBench/.venv/lib/python3.12/site-packages/langgraph/graph/_branch.py", line 203, in _finish
+    r if isinstance(r, Send) else self.ends[r] for r in result
+                                  ~~~~~~~~~^^^
+KeyError: 'compaction'
+During task with name 'reflect' and id '917456df-ac6e-8ef6-b47e-bfb16e9d79fc'

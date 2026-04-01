@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -9,34 +10,41 @@ logger = logging.getLogger(__name__)
 
 # --- Structured Output Schema (Claude Style) ---
 class AgentDecision(BaseModel):
-    internal_monologue: str = Field(description="Suy nghĩ nội bộ về yêu cầu của người dùng và kế hoạch hành động.")
-    tool_plan: List[str] = Field(default_factory=list, description="Danh sách các công cụ dự kiến sẽ sử dụng.")
-    next_node: str = Field(description="Node tiếp theo: 'tools' nếy cần gọi công cụ, 'synthesize' nếu đã có câu trả lời hoặc là câu hỏi xã giao.")
+    internal_monologue: str = Field(description="Suy nghĩ nội bộ về yêu cầu của người dùng.")
+    tool_plan: List[str] = Field(default_factory=list, description="Kế hoạch hành động từng bước.")
+    next_node: str = Field(description="Node tiếp theo: 'tools' nếy cần dữ liệu từ hệ thống, 'synthesize' nếy đã có thông tin.")
+    tool_calls: Optional[List[dict]] = Field(default_factory=list, description="Danh sách các hàm cần gọi: [{'name': '...', 'args': {...}}]. LUÔN điền nếu next_node='tools'.")
 
-AGENT_CORE_PROMPT = """Bạn là Chuyên gia Vận hành hệ thống nước Hà Nội (Hanoi Water AI), được xây dựng trên kiến trúc Claude-style Unified Loop.
+AGENT_CORE_PROMPT = """Bạn là Chuyên gia Vận hành hệ thống nước Hà Nội (Hanoi Water AI).
+Nhiệm vụ: Phân tích yêu cầu, lập kế hoạch và quyết định hành động tiếp theo.
 
-### NHIỆM VỤ:
-Phân tích yêu cầu của người dùng, lập kế hoạch và quyết định hành động tiếp theo.
+### QUY TẮC SUY LUẬN:
+1. **Phân tích Ý định**: Greeting, General, hay Data Query?
+2. **Lập kế hoạch Tool**: 
+   - Nếu tra cứu DMA cụ thể: LUÔN gọi `get_dma_info` trước để xác thực.
+   - Nếu phân tích số liệu: Dùng `text_to_sql`.
+   - Nếu vẽ biểu đồ: Dùng `plot_dma`.
+3. **Quyết định Node**: 
+   - Cần dữ liệu -> `next_node = "tools"`.
+   - Đã có câu trả lời -> `next_node = "synthesize"`.
 
-### QUY TẮC SUY LUẬN [INTERNAL_MONOLOGUE]:
-Trước khi quyết định, bạn PHẢI thực hiện suy luận nội bộ:
-1. **Phân tích Ý định**: Đây là câu hỏi xã giao (Greeting), câu hỏi chung (General), hay truy vấn dữ liệu nước (Data Query)?
-2. **Xác định Phạm vi**: Nếu là dữ liệu nước, nó áp dụng cho Toàn hệ thống (Global) hay Khu vực cụ thể (Specific)?
-3. **Lập kế hoạch Tool**: 
-   - Nếu là Specific: LUÔN bắt đầu bằng `get_dma_info` để xác thực mã hiệu.
-   - Nếu là Global/Analytical: Dùng `text_to_sql`.
-   - Nếu là vẽ biểu đồ: Dùng `plot_dma`.
-4. **Quyết định Node**: 
-   - Nếu chỉ là chào hỏi -> `next_node = "synthesize"`.
-   - Nếu cần tra cứu dữ liệu -> `next_node = "tools"`.
+### CẤU TRÚC PHẢN HỒI (MẪU):
+```json
+{{
+  "internal_monologue": "Người dùng muốn biết sản lượng DMA 05-LB. Tôi cần tra cứu thông tin DMA này trước.",
+  "tool_plan": ["1. Lấy thông tin DMA 05-LB để xác thực", "2. Lấy sản lượng"],
+  "next_node": "tools",
+  "tool_calls": [{{ "name": "get_dma_info", "args": {{ "dma_id": "05-LB" }} }}]
+}}
+```
 
-### BỐI CẢNH NGƯỜI DÙNG:
-{long_term_context}
-
-### DANH SÁCH CÔNG CỤ CÓ SẴN:
+### DANH SÁCH CÔNG CỤ:
 {tool_descriptions}
 
-TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG CẤU TRÚC (STRUCTURED OUTPUT).
+### BỐI CẢNH:
+{long_term_context}
+
+TRẢ VỀ JSON TRONG NHÃN ```json.
 """
 
 def get_agent_core_node(llm, tools):
@@ -51,35 +59,53 @@ def get_agent_core_node(llm, tools):
         messages = state.get("messages", [])
         long_term_context = state.get("long_term_context", "Không có thông tin profile.")
         
-        # Assemble professional system prompt
         sys_msg = SystemMessage(content=AGENT_CORE_PROMPT.format(
             long_term_context=long_term_context,
             tool_descriptions=tool_descriptions
         ))
         
-        # We include the last few messages for context
         prompt_messages = [sys_msg] + messages[-5:]
         
         try:
-            # Note: We assume the adapter supports with_structured_output or we handle JSON parsing
-            # For Qwen2.5-Coder with LiteLLM, we might need to handle raw output.
             response = await llm.ainvoke(prompt_messages)
             content = response.content
             
-            # Fallback JSON parsing if LLM didn't use tool calling for structure
+            if content is None:
+                 print(f"[DEBUG] Content is None! Tool calls: {getattr(response, 'tool_calls', [])}")
+                 raise ValueError("LLM returned empty content.")
+                 
+            # Fallback JSON parsing
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
             
             data = json.loads(content)
+            next_node = data.get("next_node", "synthesize")
+            tool_calls_raw = data.get("tool_calls", [])
             
-            logger.info(f"AGENT_CORE DECISION: node={data.get('next_node')} | plan={data.get('tool_plan')}")
+            # Convert JSON tool_calls to real AIMessage tool_calls
+            lc_tool_calls = []
+            if next_node == "tools" and tool_calls_raw:
+                 for tc in tool_calls_raw:
+                      lc_tool_calls.append({
+                           "name": tc.get("name"),
+                           "args": tc.get("args", {}),
+                           "id": f"call_{uuid.uuid4().hex[:8]}"
+                      })
+            
+            ai_msg = AIMessage(
+                 content=data.get("internal_monologue", ""),
+                 tool_calls=lc_tool_calls
+            )
+            
+            logger.info(f"AGENT_CORE DECISION: node={next_node} | calls={len(lc_tool_calls)}")
             
             return {
+                "messages": [ai_msg],
                 "thought": data.get("internal_monologue", ""),
                 "tool_plan": data.get("tool_plan", []),
-                "next_node": data.get("next_node", "synthesize")
+                "next_node": next_node
             }
         except Exception as e:
             logger.error(f"Error in AgentCore node: {e}")

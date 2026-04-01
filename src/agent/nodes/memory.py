@@ -57,9 +57,13 @@ async def save_memory(state: AgentState) -> dict:
              
         llm = LangchainLiteLLM(model_id=model_id)
         
+        # Serialize messages to plain text for the LLM
+        history_text = "\n".join([f"{m.type}: {m.content}" for m in messages[-4:]])
+        
         extract_prompt = f"""Phân tích hội thoại và trích xuất thông tin cá nhân người dùng.
         
-Hội thoại: {messages[-4:]} 
+Hội thoại:
+{history_text}
 
 Trả về DUY NHẤT JSON (nếu không có thông tin mới, trả về {{}}):
 {{

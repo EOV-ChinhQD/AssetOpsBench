@@ -15,60 +15,67 @@ class LangchainLiteLLM(BaseChatModel):
     backend: LiteLLMBackend = Field(exclude=True)
     
     def __init__(self, model_id: str, **kwargs):
-        # Allow multi-provider prefixes (openai/, gemini/, watsonx/, etc.)
-        # Default to openai/ ONLY if no prefix is provided
-        if "/" not in model_id:
+        # Always ensure openai/ prefix if calling a local OpenAI-compatible server
+        if not model_id.startswith("watsonx/") and not model_id.startswith("openai/"):
              model_id = f"openai/{model_id}"
+             
         super().__init__(model_id=model_id, backend=LiteLLMBackend(model_id), **kwargs)
         
-    def _generate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
+    def _generate(self, messages: List[BaseMessage], **kwargs: Any) -> ChatResult:
         import litellm
+        llm_messages = [{"role": m.type if m.type != "human" else "user", "content": str(m.content)} for m in messages]
+        
+        # Register if needed
+        if self.model_id not in litellm.model_cost:
+            litellm.model_cost[self.model_id] = {"max_tokens": 32768, "input_cost_per_token": 0, "output_cost_per_token": 0}
 
-        # Convert LangChain messages to LiteLLM format
-        llm_messages = []
-        for m in messages:
-            if m.type == "human": role = "user"
-            elif m.type == "ai": role = "assistant"
-            elif m.type == "system": role = "system"
-            elif m.type == "tool": role = "tool"
-            else: role = "user"
-            llm_messages.append({"role": role, "content": m.content})
-            
         kwargs_to_pass = {
             "model": self.model_id,
             "messages": llm_messages,
-            "temperature": 0.0,
+            "api_key": os.environ.get("LITELLM_API_KEY", "sk-local-vllm"),
+            "api_base": os.environ.get("LITELLM_BASE_URL", "http://localhost:8001/v1"),
+            "custom_llm_provider": "openai" if self.model_id.startswith("/") or "openai/" in self.model_id else None
         }
         
-        if self.model_id.startswith("watsonx/"):
-            kwargs_to_pass["api_key"] = os.environ.get("WATSONX_APIKEY")
-            kwargs_to_pass["project_id"] = os.environ.get("WATSONX_PROJECT_ID")
-        else:
-            kwargs_to_pass["api_key"] = os.environ.get("LITELLM_API_KEY")
-            kwargs_to_pass["api_base"] = os.environ.get("LITELLM_BASE_URL")
-        
-        # Handle tools if they were bound via bind_tools
-        if "tools" in self.__dict__:
+        if "tools" in self.__dict__ and self.__dict__["tools"]:
              kwargs_to_pass["tools"] = self.__dict__["tools"]
 
         response = litellm.completion(**kwargs_to_pass)
+        return self._process_response(response)
+
+    async def _agenerate(self, messages: List[BaseMessage], **kwargs: Any) -> ChatResult:
+        import litellm
+        llm_messages = [{"role": m.type if m.type != "human" else "user", "content": str(m.content)} for m in messages]
         
+        # Register
+        if self.model_id not in litellm.model_cost:
+            litellm.model_cost[self.model_id] = {"max_tokens": 32768, "input_cost_per_token": 0, "output_cost_per_token": 0}
+
+        kwargs_to_pass = {
+            "model": self.model_id,
+            "messages": llm_messages,
+            "api_key": os.environ.get("LITELLM_API_KEY", "sk-local-vllm"),
+            "api_base": os.environ.get("LITELLM_BASE_URL", "http://localhost:8001/v1"),
+            "custom_llm_provider": "openai" if self.model_id.startswith("/") or "openai/" in self.model_id else None
+        }
+        
+        if "tools" in self.__dict__ and self.__dict__["tools"]:
+             kwargs_to_pass["tools"] = self.__dict__["tools"]
+
+        response = await litellm.acompletion(**kwargs_to_pass)
+        return self._process_response(response)
+
+    def _process_response(self, response: Any) -> ChatResult:
         content = response.choices[0].message.content
         tool_calls = []
-        if hasattr(response.choices[0].message, "tool_calls") and response.choices[0].message.tool_calls:
-            for tc in response.choices[0].message.tool_calls:
+        msg = response.choices[0].message
+        if hasattr(msg, "tool_calls") and msg.tool_calls is not None:
+            for tc in msg.tool_calls:
                 tool_calls.append({
                     "name": tc.function.name,
                     "args": json.loads(tc.function.arguments),
                     "id": tc.id
                 })
-        
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content or "", tool_calls=tool_calls))])
 
     @property

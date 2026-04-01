@@ -56,8 +56,12 @@ class LiteLLMBackend(LLMBackend):
             if url := os.environ.get("WATSONX_URL"):
                 kwargs["api_base"] = url
         else:
-            kwargs["api_key"] = os.environ["LITELLM_API_KEY"]
-            kwargs["api_base"] = os.environ["LITELLM_BASE_URL"]
+            api_key = os.environ.get("LITELLM_API_KEY", "sk-fake")
+            kwargs["api_key"] = api_key
+            kwargs["api_base"] = os.environ.get("LITELLM_BASE_URL")
+            # OpenAI custom endpoint through LiteLLM requires OPENAI_API_KEY
+            if "OPENAI_API_KEY" not in os.environ:
+                 os.environ["OPENAI_API_KEY"] = api_key
 
         response = litellm.completion(**kwargs)
         return response.choices[0].message.content

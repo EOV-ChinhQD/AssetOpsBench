@@ -83,11 +83,9 @@ def route_after_reflect(state: AgentState) -> str:
     verdict = state.get("reflect_verdict", "pass")
     retry_count = state.get("retry_count", 0)
     
-    if verdict == "pass":
-        return "compaction"
-    if retry_count >= 2:
+    if verdict == "pass" or retry_count >= 2:
         return "synthesize"
-    return "compaction"
+    return "agent_core"
 
 async def build_graph(llm, db_path=None):
     workflow = StateGraph(AgentState)

@@ -14,7 +14,9 @@ try:
     redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
     redis_client.ping()
     # logger.info(f"Connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
-    redis_client = None # FORCE DISABLE AS PER USER REQUEST
+except Exception as e:
+    logger.warning(f"Failed to connect to Redis: {e}")
+    redis_client = None
 
 def get_cache_key(*args):
     """Generates a unique MD5 hash for a set of arguments."""
