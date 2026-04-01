@@ -12,6 +12,30 @@ from src.agent.mcp_client import call_mcp_tool
 
 logger = logging.getLogger(__name__)
 
+# --- Phase 1: Tool Registry & Security Metadata ---
+class ToolMetadata(BaseModel):
+    name: str
+    is_concurrency_safe: bool = True
+    category: str = "FETCH" # FETCH, SEARCH, WRITE, DANGEROUS
+    requires_permission: bool = False
+
+class WaterToolRegistry:
+    """Central registry to manage water-specific tools and their metadata."""
+    def __init__(self):
+        self.tools = {}
+        self.metadata = {}
+    
+    def register(self, tool: StructuredTool, is_safe: bool = True, category: str = "FETCH"):
+        self.tools[tool.name] = tool
+        self.metadata[tool.name] = ToolMetadata(
+            name=tool.name, 
+            is_concurrency_safe=is_safe,
+            category=category,
+            requires_permission=(category == "DANGEROUS")
+        )
+
+registry = WaterToolRegistry()
+
 # Constants for MCP Server and tools
 HANOI_SERVER = "hanoi_water-mcp-server"
 
@@ -103,15 +127,23 @@ mcp_data_quality = StructuredTool.from_function(
 from src.agent.tools.rag_search import rag_tool
 
 # Registry for ToolNode and AgentCore
-tools = [mcp_text_to_sql, mcp_dma_info, mcp_history, mcp_forecast, mcp_plot, mcp_data_quality, rag_tool]
+registry.register(mcp_text_to_sql, is_safe=True, category="SEARCH")
+registry.register(mcp_dma_info, is_safe=True, category="FETCH")
+registry.register(mcp_history, is_safe=True, category="FETCH")
+registry.register(mcp_forecast, is_safe=True, category="FETCH")
+registry.register(mcp_plot, is_safe=True, category="FETCH")
+registry.register(mcp_data_quality, is_safe=True, category="FETCH")
+registry.register(rag_tool, is_safe=True, category="SEARCH")
+
+tools = list(registry.tools.values())
 
 import asyncio
 from langchain_core.messages import ToolMessage
 
 class ParallelToolNode:
     """Optimized ToolNode that runs concurrent-safe tools in parallel."""
-    def __init__(self, tools: List[StructuredTool]):
-        self.tool_map = {t.name: t for t in tools}
+    def __init__(self, registry: WaterToolRegistry):
+        self.registry = registry
 
     async def __call__(self, state: AgentState) -> dict:
         messages = state.get("messages", [])
@@ -119,17 +151,22 @@ class ParallelToolNode:
             return {}
         
         last_msg = messages[-1]
-        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+        if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
             return {}
         
         tasks = []
         for tool_call in last_msg.tool_calls:
             name = tool_call["name"]
             args = tool_call["args"]
-            tool = self.tool_map.get(name)
+            tool = self.registry.tools.get(name)
+            meta = self.registry.metadata.get(name)
             
-            if tool:
-                logger.info(f"PARALLEL_EXEC: Adding tool task for {name}")
+            if tool and (meta.is_concurrency_safe if meta else True):
+                logger.info(f"PARALLEL_EXEC: Adding task for water-tool {name}")
+                tasks.append(self._run_tool(tool, args, tool_call["id"]))
+            elif tool:
+                # Sequential tool (not concurrency safe or metadata missing)
+                logger.warning(f"PARALLEL_EXEC: Tool {name} not marked as safe. Executing sequentially.")
                 tasks.append(self._run_tool(tool, args, tool_call["id"]))
             else:
                 logger.error(f"PARALLEL_EXEC: Tool {name} not found")
@@ -138,16 +175,59 @@ class ParallelToolNode:
                     tool_call_id=tool_call["id"]
                 )))
 
-        # 🟢 THE PERFORMANCE BOOSTER: Parallel execution!
+        # 🟢 THE PERFORMANCE BOOSTER: Parallel execution of multiple water queries!
         results = await asyncio.gather(*tasks)
         return {"messages": results}
 
     async def _run_tool(self, tool, args, tc_id):
         try:
-            # Using ainvoke for async execution
             res = await tool.ainvoke(args)
             return ToolMessage(content=str(res), tool_call_id=tc_id, name=tool.name)
         except Exception as e:
             logger.error(f"Error executing tool {tool.name}: {e}")
             return ToolMessage(content=f"Error: {e}", tool_call_id=tc_id, name=tool.name)
+
+# --- Phase 4: Permission Classifier Helper ---
+def classify_tool_calls(state: AgentState) -> str:
+    """Classifies if the latest tool calls are SAFE or require HUMAN_REVIEW."""
+    messages = state.get("messages", [])
+    if not messages: return "safe"
+    
+    last_msg = messages[-1]
+    if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
+        return "safe"
+    
+    for tool_call in last_msg.tool_calls:
+        name = tool_call["name"]
+        meta = registry.metadata.get(name)
+        
+        # 🛡️ SECURITY GUARD: Block any tool marked as dangerous or requiring permission
+        if meta and meta.requires_permission:
+            logger.warning(f"SECURITY_ALERT: Tool '{name}' requires human review!")
+            return "review"
+            
+        # SEMANTIC CHECK: If SQL contains non-SELECT keywords (DML), trigger a review
+        if name == "text_to_sql":
+            query = str(tool_call["args"].get("question", "")).lower()
+            dangerous_keywords = ["drop", "delete", "insert", "update", "truncate", "alter", "create"]
+            if any(k in query for k in dangerous_keywords):
+                logger.warning(f"SECURITY_ALERT: Potential DML detected in SQL question: {query}!")
+                return "review"
+                
+    return "safe"
+
+# --- Phase 4: Unified Router (Permission + Logic) ---
+def route_after_core_with_permissions(state: AgentState) -> str:
+    """Unified router: Determines node AND checks permissions."""
+    next_node = state.get("next_node", "synthesize")
+    
+    # If the LLM wants tools, check if they are safe
+    if next_node == "tools":
+        safety = classify_tool_calls(state)
+        return "human_review" if safety == "review" else "tool_node"
+    
+    # Failsafe for syntax variations
+    if next_node == "response": return "synthesize"
+    
+    return next_node
 

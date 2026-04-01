@@ -100,7 +100,8 @@ async def build_graph(llm, db_path=None):
     workflow.add_node("compaction", get_compaction_node(llm))
     workflow.add_node("agent_core", get_agent_core_node(llm, tools))
     workflow.add_node("human_review", human_review)
-    workflow.add_node("tool_node", ParallelToolNode(tools))
+    from .nodes.router import registry
+    workflow.add_node("tool_node", ParallelToolNode(registry))
     workflow.add_node("collect_results", collect_results)
     workflow.add_node("reflect", get_reflect_node(llm))
     workflow.add_node("synthesize", get_synthesize_node(llm))
@@ -108,19 +109,18 @@ async def build_graph(llm, db_path=None):
 
     workflow.set_entry_point("load_memory")
     workflow.add_edge("load_memory", "compaction")
-    workflow.add_edge("compaction", "agent_core")
+    from .nodes.router import route_after_core_with_permissions
     
     workflow.add_conditional_edges(
         "agent_core",
-        route_after_core,
+        route_after_core_with_permissions,
         {
-            "tools": "tool_node", 
-            "human_review": "human_review", 
-            "synthesize": "synthesize",
-            "response": "synthesize" # Failsafe for LLM naming it response
+            "tool_node": "tool_node",
+            "human_review": "human_review",
+            "synthesize": "synthesize"
         }
     )
-
+    
     workflow.add_edge("human_review", "tool_node")
     workflow.add_edge("tool_node", "collect_results")
     workflow.add_edge("collect_results", "reflect")

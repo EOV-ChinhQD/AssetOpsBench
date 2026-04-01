@@ -5,13 +5,17 @@ from .state import AgentState
 logger = logging.getLogger(__name__)
 
 # Structured compaction prompt for better summary quality
-COMPACT_PROMPT = """Bạn là chuyên gia nén ngữ cảnh cho Agent Cấp nước Hà Nội.
-Tóm tắt hội thoại bên dưới theo đúng format:
+# Optimized compaction prompt for high-fidelity water analysis
+COMPACT_PROMPT = """Bạn là Chuyên gia Vận hành Cấp nước (Senior Water Operations Engineer) tại Hanoi Water AI.
+Lớp "Bộ nhớ Dài hạn" này tóm tắt hội thoại để tiết kiệm token nhưng PHẢI giữ lại:
 
-[DMA ĐÃ TRA CỨU]: Liệt kê các mã DMA đã được đề cập (Vd: 01-LB, 06-QM)
-[DỮ LIỆU ĐÃ LẤY]: Tóm tắt kết quả chính (sản lượng, dự báo, biểu đồ)
-[TÓM TẮT]: Tóm tắt ngắn gọn nội dung hội thoại (2-3 câu)
-[VẤN ĐỀ CÒN MỞ]: Câu hỏi nào chưa được trả lời?
+[MÃ DMA ĐANG PHÂN TÍCH]: Liệt kê các mã DMA chính (Vd: 01-LB, 06-QM).
+[NGƯỠNG KỸ THUẬT]: Các ngưỡng (Vd: Qmin, Pressure) người dùng đã nhắc hoặc tool đã trả về.
+[DỮ LIỆU CHÍNH]: Tóm tắt con số sản lượng (Thực tế vs Dự báo) của các tháng gần nhất.
+[KẾT LUẬN HIỆN TẠI]: Trạm đang vận hành bình thường hay có bất thường?
+[VẤN ĐỀ CÒN LẠI]: Bước tiếp theo AI cần giải quyết là gì?
+
+Tóm tắt ngắn gọn, chuyên nghiệp, giữ nguyên các thuật ngữ kỹ thuật.
 """
 
 # Estimate ~4 chars per token for Vietnamese text
@@ -22,13 +26,22 @@ def _estimate_chars(messages) -> int:
     """Estimate total character count of messages."""
     return sum(len(str(m.content)) for m in messages if hasattr(m, 'content'))
 
-def truncate_tool_outputs(messages: list, max_len: int = 5000) -> list:
-    """Layer 1: Truncate large tool results to save context window."""
+def truncate_tool_outputs(messages: list, max_len: int = 4000) -> list:
+    """Layer 1: Smart Truncation for water-specific JSON structures."""
     new_messages = []
     for m in messages:
         if isinstance(m, ToolMessage) and len(str(m.content)) > max_len:
-            logger.info(f"TRUNCATION: Shortening output for tool {m.name}")
-            new_content = str(m.content)[:max_len] + "... [TRUNCATED]"
+            logger.info(f"SMART_TRUNCATE: Shortening large output for {m.name}")
+            content = str(m.content)
+            
+            # Simple Smart Logic: Keep start and end to preserve JSON structure and headers + recent data
+            header_len = 1500
+            footer_len = 1500
+            new_content = (
+                content[:header_len] + 
+                f"\n... [ĐÃ LƯU TRỮ VÀO DISK: {len(content) - header_len - footer_len} ký tự bị ẩn] ...\n" + 
+                content[-footer_len:]
+            )
             new_messages.append(ToolMessage(content=new_content, tool_call_id=m.tool_call_id, name=m.name))
         else:
             new_messages.append(m)
