@@ -224,7 +224,12 @@ def route_after_core_with_permissions(state: AgentState) -> str:
     # If the LLM wants tools, check if they are safe
     if next_node == "tools":
         safety = classify_tool_calls(state)
+        # If unsafe, go to review. If safe, go to tool_node
         return "human_review" if safety == "review" else "tool_node"
+    
+    # NEW: Architect (Planner) routes to the Technician (Executor)
+    if next_node == "executor":
+        return "executor"
     
     # Failsafe for syntax variations
     if next_node == "response": return "synthesize"

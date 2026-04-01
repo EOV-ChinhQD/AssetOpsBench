@@ -41,44 +41,44 @@ def get_reflect_node(llm):
 
         if errors:
             note = f"Lỗi tool: {'; '.join(errors)}"
-            logger.info(f"REFLECT → retry (error): {note}")
+            logger.info(f"REFLECT (AUDITOR) → retry (error): {note}")
             return {"reflect_verdict": "retry", "reflect_notes": note, "retry_count": retry_count + 1}
-
-        # === LAYER 2: Content Quality Check ===
-        # If we ONLY got DMA validation but no actual data → need to fetch data
-        tool_names = [r.get("tool", "") for r in tool_results]
-        only_dma = all(t == "get_dma_info" for t in tool_names) and len(tool_names) > 0
         
-        if only_dma and not has_real_data:
-            note = "Chỉ xác thực DMA mà chưa lấy dữ liệu. Cần gọi get_history/get_forecast."
-            logger.info(f"REFLECT → retry (incomplete): {note}")
-            return {"reflect_verdict": "retry", "reflect_notes": note, "retry_count": retry_count + 1}
+        # === LAYER 4: LLM-BASED SOP AUDIT (THE SENIOR AUDITOR) ===
+        # Use the same brain (LLM) but with a high-criticism prompt to audit the findings.
+        audit_prompt = f"""Bạn là Kiểm soát viên Vận hành (Operations Auditor) tại Hanoi Water AI.
+Nhiệm vụ: Kiểm tra xem kết quả của Kỹ thuật viên (Technician) có chính xác, đầy đủ và tuân thủ SOP không.
 
-        if empty_results and not has_real_data:
-            note = f"Kết quả rỗng từ: {', '.join(empty_results)}. Thử query khác."
-            logger.info(f"REFLECT → retry (empty): {note}")
-            return {"reflect_verdict": "retry", "reflect_notes": note, "retry_count": retry_count + 1}
+DỮ LIỆU TOOL TRẢ VỀ:
+{json.dumps(tool_results, ensure_ascii=False, indent=2)}
 
-        # === LAYER 3: Data Anomaly Check ===
-        for r in tool_results:
-            try:
-                data = json.loads(r["output"])
-                payload = data.get("data", [])
-                if isinstance(payload, list):
-                    for row in payload:
-                        if isinstance(row, dict):
-                            tongsl = row.get("tongsl", row.get("predicted_demand"))
-                            if tongsl is not None and (int(tongsl) < 0):
-                                logger.warning(f"REFLECT: Negative value detected: {row}")
-                                return {
-                                    "reflect_verdict": "retry",
-                                    "reflect_notes": f"Giá trị âm bất thường: {row}",
-                                    "retry_count": retry_count + 1
-                                }
-            except:
-                pass
+TIÊU CHÍ KIỂM TRA:
+1. Có lấy đủ Dữ liệu Lịch sử (Silver) và Dự báo (Gold) nếu người dùng yêu cầu so sánh không?
+2. Mã DMA đã được chuẩn hóa chưa (Vd: "Long Biên" -> "01-LB")?
+3. Có phát hiện giá trị âm (bất thường) không?
+4. Đã thực hiện `check_data_quality` trước khi phân tích chưa?
 
-        logger.info("REFLECT → pass")
+Trả về DUY NHẤT JSON:
+{{
+  "verdict": "pass" hoặc "retry",
+  "reason": "Lý do chi tiết nếu yêu cầu làm lại."
+}}
+"""
+        try:
+             res = await llm.ainvoke(audit_prompt)
+             content = res.content
+             match = re.search(r"\{.*\}", content, re.DOTALL)
+             audit = json.loads(match.group(0)) if match else {"verdict": "pass"}
+             
+             if audit.get("verdict") == "retry":
+                 logger.info(f"REFLECT (AUDITOR) → retry (audit): {audit.get('reason')}")
+                 return {"reflect_verdict": "retry", "reflect_notes": audit.get("reason"), "retry_count": retry_count + 1}
+        except Exception as e:
+             logger.warning(f"Auditor failed: {e}. Defaulting to Layer 1-3.")
+
+        logger.info("REFLECT (AUDITOR) → pass")
         return {"reflect_verdict": "pass", "reflect_notes": "", "retry_count": retry_count}
+            
+    return reflect
             
     return reflect

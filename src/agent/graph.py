@@ -7,7 +7,8 @@ import logging
 import os
 
 from src.agent.state import AgentState
-from src.agent.nodes.agent_core import get_agent_core_node
+from src.agent.nodes.planner import get_planner_node
+from src.agent.nodes.executor import get_executor_node
 from src.agent.nodes.reflect import get_reflect_node
 from src.agent.nodes.synthesize import get_synthesize_node
 from src.agent.nodes.human_review import human_review
@@ -96,9 +97,8 @@ def route_after_reflect(state: AgentState) -> str:
 async def build_graph(llm, db_path=None):
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("load_memory", load_memory)
-    workflow.add_node("compaction", get_compaction_node(llm))
-    workflow.add_node("agent_core", get_agent_core_node(llm, tools))
+    workflow.add_node("planner", get_planner_node(llm))
+    workflow.add_node("executor", get_executor_node(llm, tools))
     workflow.add_node("human_review", human_review)
     from .nodes.router import registry
     workflow.add_node("tool_node", ParallelToolNode(registry))
@@ -109,10 +109,20 @@ async def build_graph(llm, db_path=None):
 
     workflow.set_entry_point("load_memory")
     workflow.add_edge("load_memory", "compaction")
+    workflow.add_edge("compaction", "planner")
     from .nodes.router import route_after_core_with_permissions
     
     workflow.add_conditional_edges(
-        "agent_core",
+        "planner",
+        route_after_core_with_permissions,
+        {
+            "executor": "executor",
+            "synthesize": "synthesize"
+        }
+    )
+
+    workflow.add_conditional_edges(
+        "executor",
         route_after_core_with_permissions,
         {
             "tool_node": "tool_node",
@@ -120,7 +130,6 @@ async def build_graph(llm, db_path=None):
             "synthesize": "synthesize"
         }
     )
-    
     workflow.add_edge("human_review", "tool_node")
     workflow.add_edge("tool_node", "collect_results")
     workflow.add_edge("collect_results", "reflect")
@@ -130,12 +139,11 @@ async def build_graph(llm, db_path=None):
         route_after_reflect,
         {
             "synthesize": "synthesize", 
-            "agent_core": "agent_core"
+            "planner": "planner"
         }
     )
 
     workflow.add_edge("synthesize", "save_memory")
-    workflow.add_edge("save_memory", END)
     workflow.add_edge("save_memory", END)
 
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
