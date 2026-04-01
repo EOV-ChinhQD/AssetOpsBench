@@ -19,11 +19,17 @@ def get_synthesize_node(llm):
                         chart_update["plot_url"] = match.group(0)
                         break
                 try:
-                    data = json.loads(msg.content)
-                    if isinstance(data, dict) and "chart_json" in data:
-                        chart_update["chart_json"] = data["chart_json"]
-                        chart_update["chart_type"] = data.get("chart_type", "vegalite")
-                        break
+                    data = json.loads(str(msg.content))
+                    if isinstance(data, dict):
+                         payload = data.get("data", {})
+                         if isinstance(payload, dict):
+                              if "chart_json" in payload:
+                                  chart_update["chart_json"] = payload["chart_json"]
+                                  chart_update["chart_type"] = payload.get("chart_type", "vegalite")
+                              if "url" in payload:
+                                  chart_update["plot_url"] = payload["url"]
+                              if "chart_json" in chart_update or "plot_url" in chart_update:
+                                  break
                 except: continue
 
         # 2. Extract ALL tool results from the entire conversation
@@ -89,13 +95,19 @@ Hãy tổng hợp dữ liệu dưới đây để trả lời người dùng m�
 {results_context}
 """
 
-        response = await llm.ainvoke([
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": state["messages"][0].content}
-        ])
-        
-        res_dict = {"messages": [AIMessage(content=response.content)]}
-        res_dict.update(chart_update)
-        return res_dict
+        try:
+            response = await llm.ainvoke([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": state["messages"][0].content}
+            ])
+            
+            res_dict = {"messages": [AIMessage(content=response.content)]}
+            res_dict.update(chart_update)
+            return res_dict
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            logger.error(f"SYNTHESIZE_ERROR: {e}")
+            return {"messages": [AIMessage(content=f"Lỗi tổng hợp dữ liệu: {e}")], **chart_update}
         
     return synthesize

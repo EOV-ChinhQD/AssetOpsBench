@@ -58,6 +58,8 @@ Trả về JSON: {{"verdict": "pass" | "retry", "suggestion": "..."}}
             logger.info(f"REFLECT_DECISION: {verdict} (LLM) — {notes}")
             return {"reflect_verdict": verdict, "reflect_notes": notes, "retry_count": retry_count + 1}
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             logger.error(f"REFLECT_ERROR: {e}")
             return {"reflect_verdict": "pass", "reflect_notes": "", "retry_count": retry_count + 1}
             

@@ -1,67 +1,61 @@
-"""Unified LLM backend via the litellm library.
-
-Supports any model string that litellm recognizes.  The provider is encoded
-in the model-string prefix — no separate platform flag is needed:
-
-    watsonx/meta-llama/llama-3-3-70b-instruct   → IBM WatsonX
-    litellm_proxy/GCP/claude-4-sonnet            → LiteLLM proxy
-
-Credentials are resolved from environment variables based on the prefix:
-
-    watsonx/*  :  WATSONX_APIKEY, WATSONX_PROJECT_ID, WATSONX_URL (optional)
-    otherwise  :  LITELLM_API_KEY, LITELLM_BASE_URL
-"""
-
-from __future__ import annotations
-
 import os
-
+import json
+import logging
+import requests
+from typing import Optional
+from tenacity import retry, stop_after_attempt, wait_exponential
 from .base import LLMBackend
 
+logger = logging.getLogger(__name__)
 
 class LiteLLMBackend(LLMBackend):
-    """LLM backend using the litellm library.
+    def __init__(self, model_id: Optional[str] = None) -> None:
+        # Use local vLLM if available/requested, else fallback
+        self._base_url = os.environ.get("LOCAL_LLM_URL", "http://localhost:8001/v1")
+        self._model_id = model_id or os.environ.get("LLM_MODEL_NAME", "Qwen2.5-Coder-7B-Instruct-AWQ")
 
-    Args:
-        model_id: litellm model string with provider prefix, e.g.:
-                  ``"watsonx/meta-llama/llama-3-3-70b-instruct"``
-                  ``"litellm_proxy/GCP/claude-4-sonnet"``
-    """
-
-    def __init__(self, model_id: str) -> None:
-        # If it starts with / it is an absolute path, not a provider string
-        needs_prefix = (
-            not model_id.startswith("watsonx/") and 
-            not model_id.startswith("openai/") and 
-            (not "/" in model_id.split(":")[0] or model_id.startswith("/"))
-        )
-        if needs_prefix:
-             self._model_id = f"openai/{model_id}"
-        else:
-             self._model_id = model_id
-
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
-        import litellm
+        # Check if we should use Cloudflare or Local vLLM
+        if "cloudflare" in self._model_id.lower():
+             return self._generate_cloudflare(prompt, temperature)
+        else:
+             return self._generate_vllm(prompt, temperature)
 
-        kwargs: dict = {
+    def _generate_vllm(self, prompt: str, temperature: float) -> str:
+        payload = {
             "model": self._model_id,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": 2048,
+            "max_tokens": 2048
         }
+        try:
+            resp = requests.post(f"{self._base_url}/chat/completions", json=payload, timeout=120)
+            result = resp.json()
+            return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"vLLM Local Error: {e}")
+            # Try to see if it's the model name issue
+            logger.info("Retrying with 'default' model name...")
+            payload["model"] = "default"
+            try:
+                 resp = requests.post(f"{self._base_url}/chat/completions", json=payload, timeout=60)
+                 return resp.json()["choices"][0]["message"]["content"]
+            except:
+                 return f"Error Local LLM: {str(e)}"
 
-        if self._model_id.startswith("watsonx/"):
-            kwargs["api_key"] = os.environ["WATSONX_APIKEY"]
-            kwargs["project_id"] = os.environ["WATSONX_PROJECT_ID"]
-            if url := os.environ.get("WATSONX_URL"):
-                kwargs["api_base"] = url
-        else:
-            api_key = os.environ.get("LITELLM_API_KEY", "sk-fake")
-            kwargs["api_key"] = api_key
-            kwargs["api_base"] = os.environ.get("LITELLM_BASE_URL")
-            # OpenAI custom endpoint through LiteLLM requires OPENAI_API_KEY
-            if "OPENAI_API_KEY" not in os.environ:
-                 os.environ["OPENAI_API_KEY"] = api_key
-
-        response = litellm.completion(**kwargs)
-        return response.choices[0].message.content
+    def _generate_cloudflare(self, prompt: str, temperature: float) -> str:
+        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        api_key = os.environ.get("LITELLM_API_KEY")
+        pure_model_id = self._model_id.replace("cloudflare/", "")
+        
+        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{pure_model_id}"
+        payload = {"messages": [{"role": "user", "content": prompt}], "temperature": temperature}
+        try:
+            resp = requests.post(url, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=120)
+            res_json = resp.json()
+            if res_json.get("success"):
+                 return res_json["result"]["response"]
+            return f"Cloudflare Error: {res_json.get('errors')}"
+        except Exception as e:
+            return f"Error Cloudflare: {str(e)}"

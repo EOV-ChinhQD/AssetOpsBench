@@ -13,6 +13,7 @@ Hãy viết tóm tắt dưới dạng: "[CONTEXT_SUMMARY]: <Nội dung tóm tắ
 async def auto_compact(state: AgentState, llm, threshold: int = 15) -> dict:
     """Tự động nén tin nhắn nếu số lượng tin nhắn vượt quá threshold."""
     messages = state.get("messages", [])
+    if not messages: return {}
     
     if len(messages) <= threshold:
         return {}
@@ -24,20 +25,24 @@ async def auto_compact(state: AgentState, llm, threshold: int = 15) -> dict:
     logger.info(f"COMPACTION: Compressing {len(to_compact)} messages. Threshold={threshold}")
     
     # Gọi LLM để tóm tắt
-    summary_response = await llm.ainvoke([
-        SystemMessage(content=COMPACT_PROMPT),
-        HumanMessage(content=str(to_compact))
-    ])
-    
-    summary_content = summary_response.content
-    if "[CONTEXT_SUMMARY]:" not in summary_content:
-        summary_content = f"[CONTEXT_SUMMARY]: {summary_content}"
+    try:
+        summary_response = await llm.ainvoke([
+            SystemMessage(content=COMPACT_PROMPT),
+            HumanMessage(content=str(to_compact))
+        ])
         
-    # Tạo tin nhắn System đại diện cho boundary
-    compact_boundary_msg = SystemMessage(content=summary_content)
-    
-    # Trả về state mới với danh sách tin nhắn đã nén
-    return {
-        "messages": [compact_boundary_msg] + keep,
-        "compact_boundary": len(messages) # Đánh dấu vị trí đã nén
-    }
+        summary_content = summary_response.content or ""
+        if "[CONTEXT_SUMMARY]:" not in summary_content:
+            summary_content = f"[CONTEXT_SUMMARY]: {summary_content}"
+            
+        # Tạo tin nhắn System đại diện cho boundary
+        compact_boundary_msg = SystemMessage(content=summary_content)
+        
+        # Trả về state mới với danh sách tin nhắn đã nén
+        return {
+            "messages": [compact_boundary_msg] + keep,
+            "compact_boundary": len(messages) # Đánh dấu vị trí đã nén
+        }
+    except Exception as e:
+        logger.error(f"Compaction failed: {e}")
+        return {}

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class AgentDecision(BaseModel):
     internal_monologue: str = Field(description="Suy nghĩ nội bộ về yêu cầu của người dùng.")
     tool_plan: List[str] = Field(default_factory=list, description="Kế hoạch hành động từng bước.")
-    next_node: str = Field(description="Node tiếp theo: 'tools' nếy cần dữ liệu từ hệ thống, 'synthesize' nếy đã có thông tin.")
+    next_node: str = Field(description="Node tiếp theo: 'tools' nếu cần dữ liệu, 'synthesize' nếu đã có tin. CHỈ DÙNG 'tools' hoặc 'synthesize'.")
     tool_calls: Optional[List[dict]] = Field(default_factory=list, description="Danh sách các hàm cần gọi: [{'name': '...', 'args': {...}}]. LUÔN điền nếu next_node='tools'.")
 
 AGENT_CORE_PROMPT = """Bạn là Chuyên gia Vận hành hệ thống nước Hà Nội (Hanoi Water AI).
@@ -21,20 +21,19 @@ Nhiệm vụ: Phân tích yêu cầu, lập kế hoạch và quyết định hà
 ### QUY TẮC SUY LUẬN:
 1. **Phân tích Ý định**: Greeting, General, hay Data Query?
 2. **Lập kế hoạch Tool**: 
-   - Nếu tra cứu DMA cụ thể: LUÔN gọi `get_dma_info` trước để xác thực.
-   - Nếu phân tích số liệu: Dùng `text_to_sql`.
-   - Nếu vẽ biểu đồ: Dùng `plot_dma`.
-3. **Quyết định Node**: 
-   - Cần dữ liệu -> `next_node = "tools"`.
-   - Đã có câu trả lời -> `next_node = "synthesize"`.
+    - Nếu tra cứu DMA (Vd: 01-LB, 06-QM): Bạn có thể gọi `get_dma_info` và `get_forecast`/`get_history` ĐỒNG THỜI trong một lượt gọi tool để tối ưu tốc độ.
+    - Nếu phân tích số liệu, đếm số lượng hoặc thống kê: Dùng `text_to_sql`. (VD: Để đếm số DMA, dùng `SELECT COUNT(DISTINCT madma) FROM silver.stg_water_demand`).
+    - **QUY TẮC MẶC ĐỊNH**: Nếu thiếu thời gian, mặc định dùng năm 2024 và tháng 10.
+    - Nếu vẽ biểu đồ: Dùng `plot_dma`.
+    - **TUYỆT ĐỐI KHÔNG GIẢ ĐỊNH KẾT QUẢ**: Bạn không có kiến thức về sản lượng DMA cụ thể. Phải gọi tool lấy số liệu mới được Synthesize.
 
-### CẤU TRÚC PHẢN HỒI (MẪU):
+### CẤU TRÚC PHẢN HỒI (BẮT BUỘC JSON):
 ```json
 {{
-  "internal_monologue": "Người dùng muốn biết sản lượng DMA 05-LB. Tôi cần tra cứu thông tin DMA này trước.",
-  "tool_plan": ["1. Lấy thông tin DMA 05-LB để xác thực", "2. Lấy sản lượng"],
+  "internal_monologue": "Người dùng muốn biết... Tôi chưa có dữ liệu nên cần gọi tool...",
+  "tool_plan": ["1. Xác thực DMA", "2. Lấy dữ liệu"],
   "next_node": "tools",
-  "tool_calls": [{{ "name": "get_dma_info", "args": {{ "dma_id": "05-LB" }} }}]
+  "tool_calls": [{{ "name": "get_dma_info", "args": {{ "dma_id": "..." }} }}]
 }}
 ```
 
@@ -69,19 +68,25 @@ def get_agent_core_node(llm, tools):
         try:
             response = await llm.ainvoke(prompt_messages)
             content = response.content
+            logger.info(f"DEBUG LLM RAW: {content}")
             
-            if content is None:
-                 print(f"[DEBUG] Content is None! Tool calls: {getattr(response, 'tool_calls', [])}")
-                 raise ValueError("LLM returned empty content.")
-                 
-            # Fallback JSON parsing
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
+            if content is None: raise ValueError("LLM returned empty content.")
             
-            data = json.loads(content)
-            next_node = data.get("next_node", "synthesize")
+            # Robust JSON extraction
+            json_str = content
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[-1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[-1].split("```")[0].strip()
+            
+            # Remove any leading text before the first '{'
+            if "{" in json_str:
+                json_str = json_str[json_str.find("{"):]
+            if "}" in json_str:
+                json_str = json_str[:json_str.rfind("}")+1]
+            
+            data = json.loads(json_str)
+            next_node = data.get("next_node", "tools") # DEFAULT TO TOOLS for data queries
             tool_calls_raw = data.get("tool_calls", [])
             
             # Convert JSON tool_calls to real AIMessage tool_calls
@@ -108,6 +113,8 @@ def get_agent_core_node(llm, tools):
                 "next_node": next_node
             }
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             logger.error(f"Error in AgentCore node: {e}")
             # Failsafe: route to synthesize
             return {

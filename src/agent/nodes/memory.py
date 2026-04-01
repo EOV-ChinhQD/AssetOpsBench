@@ -86,7 +86,7 @@ Trả về DUY NHẤT JSON (nếu không có thông tin mới, trả về {{}}):
                     INSERT INTO app.user_preferences (user_id, pref_key, pref_value, source, updated_at)
                     VALUES (:uid, 'profile', :val, 'langgraph', now())
                     ON CONFLICT (user_id, pref_key) DO UPDATE SET
-                        pref_value = app.user_preferences.pref_value || :val,
+                        pref_value = :val,
                         updated_at = now()
                 """)
                 conn.execute(upsert, {"uid": user_id, "val": json.dumps(extract)})

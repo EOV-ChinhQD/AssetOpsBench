@@ -21,8 +21,9 @@ async def run_battery():
         {"id": "test_hist_06QM", "query": "Sản lượng 06-QM tháng 10 năm 2024 là bao nhiêu?", "expected": "8560 m3"},
         {"id": "test_norm_05LB", "query": "Mã khu vực 05-LB tháng 9/2024 ra bao nhiêu m3?", "expected": "95180 m3"},
         {"id": "test_forecast_01LB", "query": "Dự báo sản lượng DMA 01-LB vào tháng 4 năm 2026?", "expected": "34653 m3"},
-        {"id": "test_sql_count", "query": "Trong hệ thống, có bao nhiêu DMA có mã bắt đầu bằng '01'?", "expected": "hàng dữ liệu"},
-        {"id": "test_plot_01LB", "query": "Vẽ biểu đồ sản lượng cho DMA 01-LB.", "expected": "biểu đồ"}
+        {"id": "test_sql_count_dma", "query": "Hệ thống có tổng cộng bao nhiêu DMA?", "expected": "số lượng"},
+        {"id": "test_sql_max_consumption", "query": "Khu vực nào dùng nước nhiều nhất tháng 10 năm 2024?", "expected": "DMA-05-LB"},
+        {"id": "test_plot_simple", "query": "Hãy vẽ biểu đồ cho DMA 01-LB.", "expected": "biểu đồ"}
     ]
     
     for tc in test_cases:
@@ -33,8 +34,11 @@ async def run_battery():
         try:
              async for event in graph.astream(inputs, config=config, stream_mode="updates"):
                  for node, state in event.items():
-                     if node == "synthesize" and state and "messages" in state:
-                          print(f"\n[FINAL RESPONSE]: {state['messages'][-1].content}")
+                      print(f"\n[NODE]: {node}")
+                      if state and "thought" in state:
+                           print(f"THOUGHT: {state['thought']}")
+                      if state and node == "synthesize" and "messages" in state:
+                           print(f"\n[FINAL RESPONSE]: {state['messages'][-1].content}")
         except Exception as e:
              print(f"Error in test case {tc['id']}: {e}")
 

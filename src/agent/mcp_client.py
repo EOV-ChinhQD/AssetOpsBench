@@ -12,14 +12,13 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 
 async def call_mcp_tool(server_name: str, tool_name: str, args: dict) -> str:
     """
-    Connects to an MCP server and calls a tool, with Redis caching.
+    Connects to an MCP server and calls a tool, with Redis caching DISABLED.
     """
-    from src.agent.utils.cache import get_tool_cache, set_tool_cache
-    
-    # 🟢 REDIS: Check Tool Cache
-    cached_res = get_tool_cache(tool_name, args)
-    if cached_res:
-         return cached_res
+    # 🟢 REDIS: Temporarily disabled by user request
+    # from src.agent.utils.cache import get_tool_cache, set_tool_cache
+    # cached_res = get_tool_cache(tool_name, args)
+    # if cached_res:
+    #      return cached_res
 
     # Default script path for Hanoi Water server
     script_path = "src/servers/hanoi_water/main.py" if server_name == "hanoi_water-mcp-server" else server_name
@@ -39,9 +38,9 @@ async def call_mcp_tool(server_name: str, tool_name: str, args: dict) -> str:
                 result = await session.call_tool(tool_name, args)
                 text_res = "\n".join(getattr(item, "text", str(item)) for item in result.content)
                 
-                # 🔵 REDIS: Store valid results (1h TTL)
-                if text_res and "error" not in text_res.lower() and "lỗi" not in text_res.lower():
-                    set_tool_cache(tool_name, args, text_res, ttl=3600)
+                # 🔵 REDIS: Store valid results (1h TTL) - Disabled
+                # if text_res and "error" not in text_res.lower() and "lỗi" not in text_res.lower():
+                #     set_tool_cache(tool_name, args, text_res, ttl=3600)
                     
                 return text_res
     except Exception as e:

@@ -8,9 +8,13 @@ from src.api.server.utils.normalization import normalize_dma_id
 logger = logging.getLogger(__name__)
 
 class DmaInfoInput(BaseModel):
-    dma_query: str = Field(description="Mã hiệu DMA cần tra cứu (ví dụ: '17-TL', '12-PL', '01-LB')")
+    dma_query: Optional[str] = Field(default=None, description="Mã hiệu DMA cần tra cứu (ví dụ: '17-TL', '12-PL', '01-LB')")
+    dma_id: Optional[str] = Field(default=None, description="Alias cho dma_query")
 
-async def get_dma_info_async(dma_query: str) -> str:
+async def get_dma_info_async(dma_query: Optional[str] = None, dma_id: Optional[str] = None) -> str:
+    dma_query = dma_query or dma_id
+    if not dma_query:
+        return "Vui lòng cung cấp mã DMA (dma_query)."
     """
     Xác thực mã hiệu DMA (madma) từ chuỗi nhập vào.
     TRẢ VỀ: dma_id và Công suất định chuẩn (ước tính từ lịch sử).

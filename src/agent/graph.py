@@ -33,14 +33,20 @@ def collect_results(state: AgentState) -> dict:
     idx = len(curr_messages) - 1
     while idx >= 0 and isinstance(curr_messages[idx], ToolMessage):
         msg = curr_messages[idx]
-        results.insert(0, {"tool": msg.name or "unknown", "output": str(msg.content)})
+        tool_name = msg.name or "unknown"
+        results.insert(0, {"tool": tool_name, "output": str(msg.content)})
         
-        if msg.name == "plot":
+        if tool_name == "plot_dma":
             try:
                 content_json = json.loads(str(msg.content))
-                if isinstance(content_json, dict) and "chart_json" in content_json:
-                    chart_json = content_json["chart_json"]
-                    chart_type = content_json.get("chart_type", "vegalite")
+                if isinstance(content_json, dict) and "data" in content_json:
+                    data = content_json["data"]
+                    if isinstance(data, dict):
+                        if "chart_json" in data:
+                            chart_json = data["chart_json"]
+                            chart_type = data.get("chart_type", "vegalite")
+                        if "url" in data:
+                            plot_url = data["url"]
                 elif "http" in str(msg.content):
                     plot_url = str(msg.content)
             except:
@@ -110,7 +116,8 @@ async def build_graph(llm, db_path=None):
         {
             "tools": "tool_node", 
             "human_review": "human_review", 
-            "synthesize": "synthesize"
+            "synthesize": "synthesize",
+            "response": "synthesize" # Failsafe for LLM naming it response
         }
     )
 
