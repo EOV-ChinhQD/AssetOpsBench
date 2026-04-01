@@ -33,6 +33,13 @@ class PlotInput(BaseModel):
     dma_id: str = Field(description="Mã hiệu DMA (ví dụ: 'DMA-HT-01')")
     include_forecast: bool = Field(default=True, description="Có bao gồm dữ liệu dự báo không")
 
+class TaskInput(BaseModel):
+    tasks: list[str] = Field(description="Danh sách các nhiệm vụ cụ thể.")
+
+class TaskUpdateInput(BaseModel):
+    task_index: int = Field(description="Vị trí nhiệm vụ (0-indexed).")
+    status: str = Field(description="Trạng thái: 'todo', 'doing', 'done'.")
+
 # --- Optimized Tool Definitions (Claude-style LifeCycle) ---
 
 mcp_dma_info = StructuredTool.from_function(

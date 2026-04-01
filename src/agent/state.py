@@ -13,6 +13,11 @@ class AgentState(TypedDict):
     thread_id: str
     user_id: str
 
+    # Planning & Task System (s03 / s07 style)
+    is_planning: bool               # True if agent is in "Plan Mode"
+    task_list: list[dict]           # [{ "task": str, "status": "todo"|"doing"|"done" }]
+    current_task_id: int            # Pointer to the current task
+    
     # Decision & Thinking (Replaces hardcoded intent/think stages)
     thought: Optional[str]          # [INTERNAL_MONOLOGUE] - Hidden reasoning for the agent
     tool_plan: list[str]            # Sequence of tools to execute (optional hint)
