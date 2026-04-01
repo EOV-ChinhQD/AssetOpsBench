@@ -105,3 +105,49 @@ from src.agent.tools.rag_search import rag_tool
 # Registry for ToolNode and AgentCore
 tools = [mcp_text_to_sql, mcp_dma_info, mcp_history, mcp_forecast, mcp_plot, mcp_data_quality, rag_tool]
 
+import asyncio
+from langchain_core.messages import ToolMessage
+
+class ParallelToolNode:
+    """Optimized ToolNode that runs concurrent-safe tools in parallel."""
+    def __init__(self, tools: List[StructuredTool]):
+        self.tool_map = {t.name: t for t in tools}
+
+    async def __call__(self, state: AgentState) -> dict:
+        messages = state.get("messages", [])
+        if not messages:
+            return {}
+        
+        last_msg = messages[-1]
+        if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+            return {}
+        
+        tasks = []
+        for tool_call in last_msg.tool_calls:
+            name = tool_call["name"]
+            args = tool_call["args"]
+            tool = self.tool_map.get(name)
+            
+            if tool:
+                logger.info(f"PARALLEL_EXEC: Adding tool task for {name}")
+                tasks.append(self._run_tool(tool, args, tool_call["id"]))
+            else:
+                logger.error(f"PARALLEL_EXEC: Tool {name} not found")
+                tasks.append(asyncio.sleep(0, result=ToolMessage(
+                    content=f"Error: Tool {name} not found.",
+                    tool_call_id=tool_call["id"]
+                )))
+
+        # 🟢 THE PERFORMANCE BOOSTER: Parallel execution!
+        results = await asyncio.gather(*tasks)
+        return {"messages": results}
+
+    async def _run_tool(self, tool, args, tc_id):
+        try:
+            # Using ainvoke for async execution
+            res = await tool.ainvoke(args)
+            return ToolMessage(content=str(res), tool_call_id=tc_id, name=tool.name)
+        except Exception as e:
+            logger.error(f"Error executing tool {tool.name}: {e}")
+            return ToolMessage(content=f"Error: {e}", tool_call_id=tc_id, name=tool.name)
+

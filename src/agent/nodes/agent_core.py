@@ -26,9 +26,9 @@ Trước khi đưa ra quyết định, hãy phân tích:
 6. **Thời gian**: Ưu tiên thời gian người dùng yêu cầu. Nếu không rõ, lấy dữ liệu mới nhất.
 
 ### NGUYÊN TẮC:
-- **Song song**: Gọi các tool độc lập cùng lúc (Vd: `get_dma_info` + `get_history`).
+- **Tận dụng Song song**: Hãy liệt kê TẤT CẢ các tool có thể chạy cùng lúc trong một lượt duy nhất. Ví dụ: `get_dma_info` + `get_history` + `get_forecast` có thể gọi cùng một lúc để tiết kiệm thời gian.
 - **Chính xác**: KHÔNG tự bịa số liệu. Chỉ dùng dữ liệu từ tool.
-- **Phân đoạn**: Câu hỏi phức tạp → chia nhỏ thành nhiều lượt.
+- **Phân đoạn**: Chỉ chia nhỏ câu hỏi nếu tool sau PHỤ THUỘC vào kết quả tool trước.
 
 ### ĐỊNH DẠNG (JSON):
 ```json

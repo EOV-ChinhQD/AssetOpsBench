@@ -1,5 +1,5 @@
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode
+from .nodes.router import ParallelToolNode
 from langchain_core.messages import ToolMessage
 import json
 import re
@@ -100,7 +100,7 @@ async def build_graph(llm, db_path=None):
     workflow.add_node("compaction", get_compaction_node(llm))
     workflow.add_node("agent_core", get_agent_core_node(llm, tools))
     workflow.add_node("human_review", human_review)
-    workflow.add_node("tool_node", ToolNode(tools))
+    workflow.add_node("tool_node", ParallelToolNode(tools))
     workflow.add_node("collect_results", collect_results)
     workflow.add_node("reflect", get_reflect_node(llm))
     workflow.add_node("synthesize", get_synthesize_node(llm))

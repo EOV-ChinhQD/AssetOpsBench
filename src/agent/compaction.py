@@ -22,6 +22,27 @@ def _estimate_chars(messages) -> int:
     """Estimate total character count of messages."""
     return sum(len(str(m.content)) for m in messages if hasattr(m, 'content'))
 
+def truncate_tool_outputs(messages: list, max_len: int = 5000) -> list:
+    """Layer 1: Truncate large tool results to save context window."""
+    new_messages = []
+    for m in messages:
+        if isinstance(m, ToolMessage) and len(str(m.content)) > max_len:
+            logger.info(f"TRUNCATION: Shortening output for tool {m.name}")
+            new_content = str(m.content)[:max_len] + "... [TRUNCATED]"
+            new_messages.append(ToolMessage(content=new_content, tool_call_id=m.tool_call_id, name=m.name))
+        else:
+            new_messages.append(m)
+    return new_messages
+
+def micro_compact(messages: list, keep_recent: int = 10) -> list:
+    """Layer 2: A 'cheap' no-LLM compaction that removes tool outputs older than keep_recent."""
+    if len(messages) <= keep_recent + 5:
+        return messages
+    
+    logger.info(f"MICRO_COMPACT: Dropping details from {len(messages) - keep_recent} older messages")
+    # Keep the first message (usually System) and the last N messages
+    return [messages[0]] + messages[-keep_recent:]
+
 async def auto_compact(state: AgentState, llm, threshold: int = 15) -> dict:
     """Token-aware compaction with structured summaries."""
     messages = state.get("messages", [])
@@ -31,11 +52,17 @@ async def auto_compact(state: AgentState, llm, threshold: int = 15) -> dict:
     total_chars = _estimate_chars(messages)
     msg_count = len(messages)
     
+    # Layer 1: Strategic Truncation (Always apply to very large messages)
+    messages = truncate_tool_outputs(messages)
+    
     # Trigger compaction based on EITHER message count OR estimated token usage
     if msg_count <= threshold and total_chars <= MAX_CONTEXT_CHARS:
-        return {}
+        return {"messages": messages} # Return messages even if not summarized (for truncation)
 
-    # Keep last 5 messages for immediate context
+    # Layer 2: Micro-compaction (Fast, no-LLM)
+    # If we are just slightly over threshold, try micro-compact first
+    if msg_count > threshold and msg_count < threshold * 2:
+        return {"messages": micro_compact(messages, keep_recent=threshold)}
     keep_count = 5
     to_compact = messages[:-keep_count]
     keep = messages[-keep_count:]
