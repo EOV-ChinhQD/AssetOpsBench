@@ -4,45 +4,75 @@ from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
-COMPACT_PROMPT = """Bạn là chuyên gia nén ngữ cảnh. 
-Nhiệm vụ của bạn là tóm tắt các cuộc hội thoại cũ thành một đoạn văn ngắn gọn nhưng đầy đủ các chi tiết kỹ thuật (Mã DMA, kết quả truy vấn, các bước đã thực hiện).
+# Structured compaction prompt for better summary quality
+COMPACT_PROMPT = """Bạn là chuyên gia nén ngữ cảnh cho Agent Cấp nước Hà Nội.
+Tóm tắt hội thoại bên dưới theo đúng format:
 
-Hãy viết tóm tắt dưới dạng: "[CONTEXT_SUMMARY]: <Nội dung tóm tắt>"
+[DMA ĐÃ TRA CỨU]: Liệt kê các mã DMA đã được đề cập (Vd: 01-LB, 06-QM)
+[DỮ LIỆU ĐÃ LẤY]: Tóm tắt kết quả chính (sản lượng, dự báo, biểu đồ)
+[TÓM TẮT]: Tóm tắt ngắn gọn nội dung hội thoại (2-3 câu)
+[VẤN ĐỀ CÒN MỞ]: Câu hỏi nào chưa được trả lời?
 """
 
+# Estimate ~4 chars per token for Vietnamese text
+CHARS_PER_TOKEN = 4
+MAX_CONTEXT_CHARS = 12000  # ~3000 tokens, safe for most models
+
+def _estimate_chars(messages) -> int:
+    """Estimate total character count of messages."""
+    return sum(len(str(m.content)) for m in messages if hasattr(m, 'content'))
+
 async def auto_compact(state: AgentState, llm, threshold: int = 15) -> dict:
-    """Tự động nén tin nhắn nếu số lượng tin nhắn vượt quá threshold."""
+    """Token-aware compaction with structured summaries."""
     messages = state.get("messages", [])
-    if not messages: return {}
+    if not messages:
+        return {}
     
-    if len(messages) <= threshold:
+    total_chars = _estimate_chars(messages)
+    msg_count = len(messages)
+    
+    # Trigger compaction based on EITHER message count OR estimated token usage
+    if msg_count <= threshold and total_chars <= MAX_CONTEXT_CHARS:
         return {}
 
-    # Xác định phần cần nén (ví dụ nén 1/2 số tin nhắn cũ)
-    to_compact = messages[:-5] # Giữ lại 5 tin nhắn cuối cùng để làm bối cảnh trực tiếp
-    keep = messages[-5:]
+    # Keep last 5 messages for immediate context
+    keep_count = 5
+    to_compact = messages[:-keep_count]
+    keep = messages[-keep_count:]
     
-    logger.info(f"COMPACTION: Compressing {len(to_compact)} messages. Threshold={threshold}")
+    trigger = f"msgs={msg_count}" if msg_count > threshold else f"chars={total_chars}"
+    logger.info(f"COMPACTION triggered ({trigger}): compressing {len(to_compact)} messages")
     
-    # Gọi LLM để tóm tắt
     try:
+        # Serialize messages for LLM summarization
+        compact_text = []
+        for m in to_compact:
+            role = getattr(m, 'type', 'unknown')
+            content = str(m.content)[:500]  # Cap individual message length
+            compact_text.append(f"[{role}]: {content}")
+        
         summary_response = await llm.ainvoke([
             SystemMessage(content=COMPACT_PROMPT),
-            HumanMessage(content=str(to_compact))
+            HumanMessage(content="\n".join(compact_text))
         ])
         
-        summary_content = summary_response.content or ""
-        if "[CONTEXT_SUMMARY]:" not in summary_content:
-            summary_content = f"[CONTEXT_SUMMARY]: {summary_content}"
-            
-        # Tạo tin nhắn System đại diện cho boundary
-        compact_boundary_msg = SystemMessage(content=summary_content)
+        summary = summary_response.content or ""
         
-        # Trả về state mới với danh sách tin nhắn đã nén
+        # Ensure proper format
+        if "[TÓM TẮT]:" not in summary:
+            summary = f"[TÓM TẮT]: {summary}"
+            
+        compact_msg = SystemMessage(content=f"[CONTEXT_COMPACTED]\n{summary}")
+        
+        logger.info(f"COMPACTION done: {len(to_compact)} msgs → 1 summary ({len(summary)} chars)")
         return {
-            "messages": [compact_boundary_msg] + keep,
-            "compact_boundary": len(messages) # Đánh dấu vị trí đã nén
+            "messages": [compact_msg] + keep,
+            "compact_boundary": len(messages)
         }
     except Exception as e:
         logger.error(f"Compaction failed: {e}")
+        # Fallback: simple truncation if LLM fails
+        if msg_count > threshold * 2:
+            logger.warning("Fallback: hard truncation")
+            return {"messages": messages[-threshold:], "compact_boundary": len(messages)}
         return {}

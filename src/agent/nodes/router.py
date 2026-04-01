@@ -51,7 +51,7 @@ class TaskUpdateInput(BaseModel):
 
 mcp_dma_info = StructuredTool.from_function(
     name="get_dma_info",
-    description="XÁC THỰC DMA: Chuyển đổi tên DMA không chuẩn hoặc mã hiệu thành mã chuẩn (DMA-XX-XX). LUÔN gọi tool này trước khi dùng các tool khác nếu chưa có mã chuẩn.",
+    description="XÁC THỰC & THÔNG TIN TRẠM: Chuẩn hóa mã DMA (Vd: 'Long Biên' -> '01-LB') và lấy thông tin chi tiết (quận, vùng, công suất). LUÔN dùng tool này đầu tiên.",
     coroutine=lambda dma_query=None, dma_id=None: call_mcp_tool(HANOI_SERVER, "get_dma_info", {"dma_query": dma_query or dma_id}),
     args_schema=DmaQueryInput
 )
@@ -65,7 +65,7 @@ mcp_text_to_sql = StructuredTool.from_function(
 
 mcp_history = StructuredTool.from_function(
     name="get_history",
-    description="DỮ LIỆU THỰC TẾ: Lấy sản lượng nước thực tế của 1 DMA theo tháng.",
+    description="DỮ LIỆU THỰC TẾ: Lấy sản lượng nước thực tế (silver) theo tháng.",
     coroutine=lambda dma_id=None, dma_query=None, months=12, year=None, month=None: call_mcp_tool(
         HANOI_SERVER, "get_history", {"dma_id": dma_id or dma_query, "months": months, "year": year, "month": month}
     ),
@@ -74,7 +74,7 @@ mcp_history = StructuredTool.from_function(
 
 mcp_forecast = StructuredTool.from_function(
     name="get_forecast",
-    description="DỮ LIỆU DỰ BÁO: Lấy sản lượng nước dự báo của 1 DMA cho các tháng tới.",
+    description="DỮ LIỆU DỰ BÁO: Lấy sản lượng nước dự báo (gold) cho các tháng tới.",
     coroutine=lambda dma_id=None, dma_query=None, horizon=3: call_mcp_tool(HANOI_SERVER, "get_forecast", {"dma_id": dma_id or dma_query, "horizon": horizon}),
     args_schema=ForecastInput
 )
@@ -86,5 +86,22 @@ mcp_plot = StructuredTool.from_function(
     args_schema=PlotInput
 )
 
+# --- Phase 3.1: Data Quality ---
+class DataQualityInput(BaseModel):
+    dma_id: str = Field(description="Mã DMA cần kiểm tra")
+    year: int = Field(default=2024, description="Năm")
+    month: int = Field(default=10, description="Tháng")
+
+mcp_data_quality = StructuredTool.from_function(
+    name="check_data_quality",
+    description="KIỂM TRA CHẤT LƯỢNG: Phân tích bảng dữ liệu thực tế (silver) để phát hiện giá trị âm hoặc đột biến (±2σ) trước khi phân tích/dự báo.",
+    coroutine=lambda dma_id, year=2024, month=10: call_mcp_tool(HANOI_SERVER, "check_data_quality", {"dma_id": dma_id, "year": year, "month": month}),
+    args_schema=DataQualityInput
+)
+
+# --- Phase 2.2: RAG Search ---
+from src.agent.tools.rag_search import rag_tool
+
 # Registry for ToolNode and AgentCore
-tools = [mcp_text_to_sql, mcp_dma_info, mcp_history, mcp_forecast, mcp_plot]
+tools = [mcp_text_to_sql, mcp_dma_info, mcp_history, mcp_forecast, mcp_plot, mcp_data_quality, rag_tool]
+

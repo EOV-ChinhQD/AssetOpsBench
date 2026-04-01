@@ -9,59 +9,76 @@ def get_reflect_node(llm):
         retry_count = state.get("retry_count", 0)
         tool_results = state.get("tool_results", [])
         
-        logger.info(f"REFLECT_INPUT: retry_count={retry_count}, tool_results={len(tool_results)}")
+        logger.info(f"REFLECT: retry={retry_count}, results={len(tool_results)}")
         
         if retry_count >= 2:
-            return {"reflect_verdict": "pass", "reflect_notes": "", "retry_count": retry_count}
+            return {"reflect_verdict": "pass", "reflect_notes": "Max retries reached.", "retry_count": retry_count}
 
-        # 🟢 Parse JSON outputs for errors
+        # === LAYER 1: Structured Error Detection ===
         errors = []
+        empty_results = []
+        has_real_data = False
+        
         for r in tool_results:
             try:
                 data = json.loads(r["output"])
-                if data.get("status") == "error":
-                    errors.append(f"{r['tool']}: {data.get('message', 'Lỗi không xác định')}")
+                status = data.get("status", "")
+                tool_name = r.get("tool", "unknown")
+                
+                if status == "error":
+                    errors.append(f"{tool_name}: {data.get('message', 'Lỗi')}")
+                elif status == "success":
+                    payload = data.get("data")
+                    # Check for empty/meaningless results
+                    if payload is None or payload == [] or payload == {}:
+                        empty_results.append(tool_name)
+                    elif isinstance(payload, list) and len(payload) > 0:
+                        has_real_data = True
+                    elif isinstance(payload, str) and len(payload) > 10:
+                        has_real_data = True
             except:
                 pass
 
         if errors:
-            note = f"Phát hiện lỗi từ tool: {', '.join(errors)}."
-            logger.info(f"REFLECT_DECISION: retry (Structured Error) — {note}")
+            note = f"Lỗi tool: {'; '.join(errors)}"
+            logger.info(f"REFLECT → retry (error): {note}")
             return {"reflect_verdict": "retry", "reflect_notes": note, "retry_count": retry_count + 1}
+
+        # === LAYER 2: Content Quality Check ===
+        # If we ONLY got DMA validation but no actual data → need to fetch data
+        tool_names = [r.get("tool", "") for r in tool_results]
+        only_dma = all(t == "get_dma_info" for t in tool_names) and len(tool_names) > 0
         
-        # 🔵 LLM-based verification
-        first_msg = state["messages"][0].content if state["messages"] else ""
-        results_summary = [f"- {r.get('tool')}: {r.get('output')[:100]}" for r in tool_results[-3:]]
+        if only_dma and not has_real_data:
+            note = "Chỉ xác thực DMA mà chưa lấy dữ liệu. Cần gọi get_history/get_forecast."
+            logger.info(f"REFLECT → retry (incomplete): {note}")
+            return {"reflect_verdict": "retry", "reflect_notes": note, "retry_count": retry_count + 1}
 
-        prompt = f"""Bạn là chuyên gia kiểm định cho hệ thống Hanoi Water.
-Câu hỏi: {first_msg}
-Kết quả Tool:
-{chr(10).join(results_summary)}
+        if empty_results and not has_real_data:
+            note = f"Kết quả rỗng từ: {', '.join(empty_results)}. Thử query khác."
+            logger.info(f"REFLECT → retry (empty): {note}")
+            return {"reflect_verdict": "retry", "reflect_notes": note, "retry_count": retry_count + 1}
 
-Quy tắc:
-1. Nếu CHỈ 'XÁC NHẬN DMA' mà chưa có số liệu -> retry ("Cần lấy số liệu").
-2. Nếu đủ dữ liệu -> pass.
-Trả về JSON: {{"verdict": "pass" | "retry", "suggestion": "..."}}
-"""
-        try:
-            result = await llm.ainvoke(prompt)
-            content = result.content
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
+        # === LAYER 3: Data Anomaly Check ===
+        for r in tool_results:
+            try:
+                data = json.loads(r["output"])
+                payload = data.get("data", [])
+                if isinstance(payload, list):
+                    for row in payload:
+                        if isinstance(row, dict):
+                            tongsl = row.get("tongsl", row.get("predicted_demand"))
+                            if tongsl is not None and (int(tongsl) < 0):
+                                logger.warning(f"REFLECT: Negative value detected: {row}")
+                                return {
+                                    "reflect_verdict": "retry",
+                                    "reflect_notes": f"Giá trị âm bất thường: {row}",
+                                    "retry_count": retry_count + 1
+                                }
+            except:
+                pass
+
+        logger.info("REFLECT → pass")
+        return {"reflect_verdict": "pass", "reflect_notes": "", "retry_count": retry_count}
             
-            data = json.loads(content)
-            verdict = data.get("verdict", "pass")
-            notes = data.get("suggestion", "")
-            
-            logger.info(f"REFLECT_DECISION: {verdict} (LLM) — {notes}")
-            return {"reflect_verdict": verdict, "reflect_notes": notes, "retry_count": retry_count + 1}
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            logger.error(f"REFLECT_ERROR: {e}")
-            return {"reflect_verdict": "pass", "reflect_notes": "", "retry_count": retry_count + 1}
-            
-    return reflect
     return reflect

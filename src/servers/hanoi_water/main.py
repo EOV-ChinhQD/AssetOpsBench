@@ -1,17 +1,13 @@
 import logging
 import json
 import re
-from typing import Optional, Any, List
+from typing import Optional, Any
 import pandas as pd
 from fastmcp import FastMCP
 from sqlalchemy import text
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
+from src.config.settings import settings
 from src.hanoi_water_db import get_engine
-from src.llm.litellm import LiteLLMBackend
+from src.llm.unified_client import UnifiedLLMClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,68 +34,161 @@ def wrap_tool_result(status: str, data: Any, message: str = "") -> str:
 
 async def _get_dma_info_logic(dma_query: str) -> str:
     if not engine: return wrap_tool_result("error", None, "Không có DB.")
+    
+    # 1. Tra cứu trong Registry (JSON) để lấy metadata & fuzzy match
+    import os
+    registry_path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "dma_registry.json")
+    registry = {}
+    try:
+        with open(registry_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+    except: pass
+
     clean_query = normalize_dma_id(dma_query)
+    found_metadata = None
+    standardized_id = None
+
+    # Tìm chính xác trong Registry
+    if clean_query in registry:
+        standardized_id = clean_query
+        found_metadata = registry[clean_query]
+    else:
+        # Tìm fuzzy trong Registry (theo tên quận, vùng...)
+        q_lower = dma_query.lower().strip()
+        for code, info in registry.items():
+            if (q_lower in info.get("name", "").lower() or 
+                q_lower in info.get("district", "").lower() or
+                q_lower in code.lower()):
+                standardized_id = code
+                found_metadata = info
+                break
+
+    # 2. Kiểm tra lại trong Database nếu chưa thấy trong Registry (hoặc để đảm bảo tồn tại)
     try:
         with engine.connect() as conn:
-            # Try exact then fuzzy
-            sql = text("SELECT DISTINCT madma FROM silver.stg_water_demand WHERE madma = :q OR madma ILIKE :q_perc LIMIT 5")
-            df = pd.read_sql(sql, conn, params={"q": clean_query, "q_perc": f"%{clean_query}%"})
-            if df.empty: return wrap_tool_result("error", None, f"Không tìm thấy DMA '{dma_query}'.")
-            matches = df['madma'].tolist()
-            dma_id = clean_query if clean_query in matches else matches[0]
-            return wrap_tool_result("success", {"dma_id": dma_id}, f"XÁC NHẬN DMA: {dma_id}")
+            q_to_check = standardized_id or clean_query
+            sql = text("SELECT DISTINCT madma FROM silver.stg_water_demand WHERE madma = :q OR madma ILIKE :q_perc LIMIT 1")
+            df = pd.read_sql(sql, conn, params={"q": q_to_check, "q_perc": f"%{q_to_check}%"})
+            
+            if not df.empty:
+                final_id = df['madma'].iloc[0]
+                res_data = {"dma_id": final_id}
+                if found_metadata: res_data["metadata"] = found_metadata
+                return wrap_tool_result("success", res_data, f"XÁC NHẬN: {final_id}")
+            
+            if found_metadata: # Có trong registry nhưng database chưa có data (vẫn trả về metadata)
+                return wrap_tool_result("success", {"dma_id": standardized_id, "metadata": found_metadata}, f"XÁC NHẬN (Registry): {standardized_id}")
+                
+            return wrap_tool_result("error", None, f"Không tìm thấy DMA '{dma_query}'.")
     except Exception as e:
-        return wrap_tool_result("error", None, f"Lỗi hệ thống: {str(e)}")
+        return wrap_tool_result("error", None, f"Lỗi: {str(e)}")
+
+
+def _get_schema_info() -> str:
+    return """
+### BẢNG DỮ LIỆU:
+1. `silver.stg_water_demand` — Dữ liệu sản lượng thực tế
+   | Cột | Kiểu | Mô tả |
+   |-----|------|-------|
+   | madma | TEXT | Mã trạm DMA (Vd: '01-LB', '06-QM') |
+   | nam | INTEGER | Năm |
+   | thang | INTEGER | Tháng (1-12) |
+   | tongsl | INTEGER | Sản lượng nước (m³) |
+
+2. `gold.fct_predictions_unified` — Dữ liệu dự báo
+   | Cột | Kiểu | Mô tả |
+   |-----|------|-------|
+   | madma | TEXT | Mã trạm DMA |
+   | year_month | TEXT | Tháng dự báo, format 'YYYY-MM' |
+   | predicted_demand | INTEGER | Sản lượng dự báo (m³) |
+   | source | TEXT | Nguồn model |
+"""
+
+def _get_few_shot_examples() -> str:
+    return """
+### VÍ DỤ THAM KHẢO (Few-Shot):
+
+**Loại: Đếm thực thể**
+Q: Hệ thống có bao nhiêu trạm DMA?
+```sql
+SELECT COUNT(DISTINCT madma) AS total_dma FROM silver.stg_water_demand
+```
+
+**Loại: Xếp hạng (Top N)**
+Q: Top 3 trạm tiêu thụ nhiều nhất tháng 9/2024?
+```sql
+SELECT madma, tongsl FROM silver.stg_water_demand WHERE nam = 2024 AND thang = 9 ORDER BY tongsl DESC LIMIT 3
+```
+
+**Loại: Tổng hợp**
+Q: Tổng sản lượng cấp nước năm 2024 là bao nhiêu?
+```sql
+SELECT SUM(tongsl) AS total FROM silver.stg_water_demand WHERE nam = 2024
+```
+
+**Loại: So sánh**
+Q: So sánh sản lượng tháng 9 và tháng 10 của 01-LB năm 2024
+```sql
+SELECT thang, tongsl FROM silver.stg_water_demand WHERE madma = '01-LB' AND nam = 2024 AND thang IN (9, 10) ORDER BY thang
+```
+
+**Loại: Dự báo**
+Q: Dự báo cho trạm 01-LB trong 3 tháng tới?
+```sql
+SELECT year_month, predicted_demand FROM gold.fct_predictions_unified WHERE madma = '01-LB' ORDER BY year_month ASC LIMIT 3
+```
+"""
 
 async def _text_to_sql_logic(question: str) -> str:
     if not engine: return wrap_tool_result("error", None, "Chưa cấu hình DB.")
-    model_id = os.getenv("LITELLM_MODEL_NAME", "cloudflare/@cf/qwen/qwen3-30b-a3b-fp8")
-    llm = LiteLLMBackend(model_id)
+    llm = UnifiedLLMClient()
+    schema = _get_schema_info()
+    examples = _get_few_shot_examples()
     
-    prompt = f"""Bạn là một chuyên gia SQL cho hệ thống cấp nước Hà Nội. Hãy tạo câu lệnh SQL chính xác.
-
-### SCHEMA:
-1. Bảng `silver.stg_water_demand` (Dữ liệu lịch sử):
-   - `madma` (TEXT): Mã trạm (VD: 'DMA-01-LB').
-   - `nam` (INTEGER), `thang` (INTEGER): Thời gian.
-   - `tongsl` (INTEGER): Sản lượng nước (m3).
-2. Bảng `gold.fct_predictions_unified` (Dữ liệu dự báo):
-   - `madma` (TEXT): Mã trạm.
-   - `year_month` (TEXT): Định dạng 'YYYY-MM' (VD: '2026-04').
-   - `predicted_demand` (INTEGER): Sản lượng dự báo.
+    base_prompt = f"""Bạn là chuyên gia SQL cho hệ thống cấp nước Hà Nội.
+{schema}
+{examples}
 
 ### QUY TẮC:
-- Chỉ trả về SQL trong block code ```sql.
-- Tuyệt đối không xóa/sửa dữ liệu.
-- Định dạng ngày tháng trong SQL: 'YYYY-MM'.
-- Để đếm số lượng Trạm (DMA): Dùng `COUNT(DISTINCT madma)`.
+1. Chỉ dùng lệnh SELECT. Chỉ trả về SQL trong block ```sql.
+2. CỘT SẮP XẾP: Dùng `ORDER BY ... DESC` cho "nhiều nhất", `ASC` cho "ít nhất".
+3. ĐẾM DMA: Luôn dùng `COUNT(DISTINCT madma)`.
+4. THỜI GIAN: Bảng lịch sử dùng `nam` (năm) và `thang` (tháng). Bảng dự báo dùng `year_month` (format 'YYYY-MM').
 
-### CÂU HỎI: {question}
+CÂU HỎI: {question}
 SQL:"""
 
-    try:
-        # Failsafe: If agent already wrote SQL, just use it
-        if "SELECT" in question.upper() and ("FROM" in question.upper() or "silver." in question.lower() or "gold." in question.lower()):
-            raw_res = f"```sql\n{question}\n```"
-            logger.info("Agent provided direct SQL. Skipping LLM generation.")
-        else:
-            raw_res = llm.generate(prompt)
-            logger.info(f"LLM_SQL_RAW: {raw_res}")
-            
-        sql_match = re.search(r"```sql\s*(.*?)\s*```", raw_res, re.DOTALL | re.IGNORECASE)
-        sql = sql_match.group(1).strip() if sql_match else raw_res.strip()
-        sql = sql.split(";")[-1] if ";" in sql and sql.endswith(";") else sql.strip()
-        sql = sql.lstrip("SQL:").strip().rstrip(';')
 
-        if any(kw in sql.upper() for kw in ["DROP", "DELETE", "UPDATE", "INSERT", "--"]):
-             return wrap_tool_result("error", None, "Lệnh SQL không an toàn.")
-        
-        with engine.connect() as conn:
-            df = pd.read_sql(text(sql), conn)
-            if df.empty: return wrap_tool_result("error", {"sql": sql}, "Không tìm thấy dữ liệu phù hợp.")
-            return wrap_tool_result("success", df.to_dict(orient="records"), f"Kết quả SQL: {len(df)} dòng.")
-    except Exception as e:
-        return wrap_tool_result("error", None, f"Lỗi thực thi SQL: {str(e)}")
+    current_prompt = base_prompt
+    max_retries = 2
+    last_error = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Failsafe: Direct SQL check
+            if attempt == 0 and "SELECT" in question.upper() and ("FROM" in question.upper() or "silver." in question.lower()):
+                raw_res = f"```sql\n{question}\n```"
+            else:
+                raw_res = llm.generate([{"role": "user", "content": current_prompt}])
+                logger.info(f"LLM_SQL_RAW (Attempt {attempt+1}): {raw_res}")
+            
+            sql_match = re.search(r"```sql\s*(.*?)\s*```", raw_res, re.DOTALL | re.IGNORECASE)
+            sql = sql_match.group(1).strip() if sql_match else raw_res.strip()
+            sql = sql.split(";")[-1] if ";" in sql and sql.endswith(";") else sql.strip()
+            sql = sql.lstrip("SQL:").strip().rstrip(';')
+
+            if any(kw in sql.upper() for kw in ["DROP", "DELETE", "UPDATE", "INSERT"]):
+                return wrap_tool_result("error", None, "Lệnh SQL không an toàn.")
+            
+            with engine.connect() as conn:
+                df = pd.read_sql(text(sql), conn)
+                return wrap_tool_result("success", df.to_dict(orient="records"), f"Kết quả SQL: {len(df)} dòng.")
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"SQL Attempt {attempt+1} failed: {last_error}")
+            current_prompt = f"{base_prompt}\n\n**LỖI TRƯỚC ĐÓ**: {last_error}\n**YÊU CẦU**: Hãy sửa câu lệnh SQL trên dựa vào lỗi này và SCHEMA đã cung cấp."
+            if attempt == max_retries:
+                return wrap_tool_result("error", None, f"Lỗi thực thi SQL sau {max_retries+1} lần thử: {last_error}")
 
 async def _get_history_logic(dma_id: str, year: int = None, month: int = None, months: int = 12) -> str:
     if not engine: return wrap_tool_result("error", None, "Không có DB.")
@@ -159,7 +248,56 @@ async def get_forecast(dma_id: Optional[str] = None, dma_query: Optional[str] = 
 @mcp.tool()
 async def plot_dma(dma_id: Optional[str] = None, dma_query: Optional[str] = None, include_forecast: bool = True) -> str:
     """Vẽ biểu đồ tiêu thụ nước (Thực tế + Dự báo)."""
-    return wrap_tool_result("success", {"url": "http://localhost:9000/hanoi-water-images/mock_plot.png"}, f"Đã vẽ biểu đồ cho {dma_id or dma_query}.")
+    return wrap_tool_result("success", {"url": f"{settings.IMAGE_BASE_URL}/mock_plot.png"}, f"Đã vẽ biểu đồ cho {dma_id or dma_query}.")
+
+@mcp.tool()
+async def check_data_quality(dma_id: str, year: int = 2024, month: int = 10) -> str:
+    """Kiểm tra chất lượng dữ liệu: phát hiện giá trị bất thường, đột biến, dữ liệu thiếu cho một DMA."""
+    if not engine: return wrap_tool_result("error", None, "Không có DB.")
+    try:
+        clean_id = normalize_dma_id(dma_id)
+        with engine.connect() as conn:
+            # Get historical stats for comparison (last 12 months)
+            stats_sql = text("""
+                SELECT AVG(tongsl) as avg_sl, STDDEV(tongsl) as std_sl, COUNT(*) as cnt
+                FROM silver.stg_water_demand WHERE madma = :dma
+            """)
+            stats = pd.read_sql(stats_sql, conn, params={"dma": clean_id})
+            
+            # Get current month value
+            current_sql = text("""
+                SELECT tongsl FROM silver.stg_water_demand 
+                WHERE madma = :dma AND nam = :year AND thang = :month
+            """)
+            current = pd.read_sql(current_sql, conn, params={"dma": clean_id, "year": year, "month": month})
+            
+            if stats.empty or current.empty:
+                return wrap_tool_result("warning", None, f"Thiếu dữ liệu cho {clean_id} ({month}/{year}).")
+            
+            avg = float(stats.iloc[0]['avg_sl'] or 0)
+            std = float(stats.iloc[0]['std_sl'] or 1)
+            val = float(current.iloc[0]['tongsl'])
+            
+            alerts = []
+            if val < 0:
+                alerts.append(f"⚠️ GIÁ TRỊ ÂM: tongsl = {val}")
+            if std > 0 and abs(val - avg) > 2 * std:
+                pct = round(((val - avg) / avg) * 100, 1)
+                direction = "TĂNG ĐỘT BIẾN" if val > avg else "GIẢM ĐỘT BIẾN"
+                alerts.append(f"⚠️ {direction}: {val} m³ ({pct:+}% so với TB={round(avg)})")
+            
+            result = {
+                "dma_id": clean_id,
+                "period": f"{month}/{year}",
+                "current_value": val,
+                "historical_avg": round(avg),
+                "std_dev": round(std),
+                "alerts": alerts if alerts else ["✅ Dữ liệu bình thường."]
+            }
+            status = "warning" if alerts else "success"
+            return wrap_tool_result(status, result, f"Kiểm tra chất lượng {clean_id} xong.")
+    except Exception as e:
+        return wrap_tool_result("error", None, str(e))
 
 def main(): mcp.run()
 if __name__ == "__main__": main()
