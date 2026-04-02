@@ -24,7 +24,7 @@ class AgentState(TypedDict):
     next_node: str                  # Dynamically decided by LLM: 'tools' | 'synthesize' | 'human_review'
     
     # Tool execution & Data
-    tool_results: list[dict]
+    tool_results: Annotated[list[dict], add_results]
     plot_url: Optional[str]
     chart_json: Optional[dict]
     chart_type: Optional[str]

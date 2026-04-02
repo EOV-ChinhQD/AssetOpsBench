@@ -30,6 +30,9 @@ class LangchainLiteLLM(BaseChatModel):
             formatted_messages.append({"role": role, "content": msg.content})
             
         content = self._client.generate(formatted_messages)
+        if isinstance(content, dict) or isinstance(content, list):
+             import json
+             content = json.dumps(content, ensure_ascii=False)
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
 
     async def _agenerate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs: Any) -> ChatResult:

@@ -9,85 +9,66 @@ engine = get_engine()
 logger = logging.getLogger(__name__)
 
 async def load_memory(state: AgentState) -> dict:
+    """Loads operational context and persistent user profile from DB."""
     user_id = state.get("user_id", "default_user")
-    logger.info(f"Loading user context for: {user_id}")
+    logger.info(f"LOADING_MEMORY: User={user_id}")
+    print(f"📂 LOADING: Initializing session memory for {user_id}...")
+    
+    # Base system instructions that form the 'long-term context'
+    system_context = "VAI TRÒ: Chuyên viên vận hành hệ thống cấp nước Hà Nội. NHIỆM VỤ: Đảm bảo an ninh nguồn nước và tối ưu hóa phân phối."
     
     if not engine:
-        logger.warning("Database engine not initialized. Skipping memory load.")
-        return {"long_term_context": "Không có dữ liệu người dùng (DB Offline)."}
+        return {"long_term_context": system_context}
 
     try:
+        loaded_dma = {}
         with engine.connect() as conn:
+            # 1. Fetch Profile
             query = text("SELECT pref_value FROM app.user_preferences WHERE user_id = :uid AND pref_key = 'profile'")
             val = conn.execute(query, {"uid": user_id}).scalar()
             
             if val:
                 if isinstance(val, str): val = json.loads(val)
-                # Format into a professional context string for the LLM
-                context = (
-                    f"DANH TÍNH: {val.get('name', 'Ẩn danh')}. "
-                    f"VAI TRÒ: {val.get('role', 'Nhân viên vận hành')}. "
-                    f"PHẠM VI QUẢN LÝ: {', '.join(val.get('managed_dmas', [])) if val.get('managed_dmas') else 'Toàn hệ thống'}."
-                )
-                return {"long_term_context": context}
-    except Exception as e:
-        logger.warning(f"Could not load memory: {e}")
+                user_desc = f" (Người dùng: {val.get('name', 'Ẩn danh')}, Vai trò: {val.get('role', 'Nhân viên')})"
+                system_context += user_desc
+            
+            # 2. Fetch DMA Cache (Long-term memory of station mapping)
+            query_dma = text("SELECT pref_value FROM app.user_preferences WHERE user_id = :uid AND pref_key = 'dma_cache'")
+            cached_dma = conn.execute(query_dma, {"uid": user_id}).scalar()
+            if cached_dma:
+                if isinstance(cached_dma, str): 
+                    loaded_dma = json.loads(cached_dma)
         
-    return {"long_term_context": "Người dùng mới (Chưa có Profile)."}
+        return {"long_term_context": system_context, "resolved_dma": loaded_dma}
+    except Exception as e:
+        logger.warning(f"Memory load partial failure: {e}")
+        
+    return {"long_term_context": system_context}
 
 async def save_memory(state: AgentState) -> dict:
+    """Persists key session state variables (like resolved DMAs) to the DB."""
     user_id = state.get("user_id", "default_user")
-    messages = state.get("messages", [])
+    resolved_dma = state.get("resolved_dma", {})
     
-    if len(messages) < 2: return state
+    logger.info(f"SAVING_MEMORY: User={user_id}, CacheSize={len(resolved_dma)}")
+    print(f"💾 SAVING: Recording session cache for {user_id}...")
+    
+    if not engine or not resolved_dma:
+        return state
 
     try:
-        from src.llm.langchain_adapter import LangchainLiteLLM
-        import os
-        
-        # Skip for mock users to avoid API errors during tests
-        if user_id.startswith("mock_"):
-            logger.info("Skipping real memory save for mock user.")
-            return state
-            
-        # Use the unified LangchainLiteLLM which pulls from settings.py correctly
-        llm = LangchainLiteLLM()
-        
-        # Serialize messages to plain text for the LLM
-        history_text = "\n".join([f"{m.type}: {m.content}" for m in messages[-4:]])
-        
-        extract_prompt = f"""Phân tích hội thoại và trích xuất thông tin cá nhân người dùng.
-        
-Hội thoại:
-{history_text}
-
-Trả về DUY NHẤT JSON (nếu không có thông tin mới, trả về {{}}):
-{{
-  "name": "Tên người dùng (nếu có)",
-  "role": "Chức vụ (ví dụ: Quản lý, Giám đốc)",
-  "managed_dmas": ["Mã DMA họ quản lý - ví dụ: 17-TL"]
-}}
-"""
-        res = await llm.ainvoke(extract_prompt)
-        try:
-             import re
-             content = res.content
-             blocks = re.findall(r"\{.*\}", content, re.DOTALL)
-             extract = json.loads(blocks[0]) if blocks else {}
-        except: extract = {}
-
-        if extract and any(extract.values()):
-            with engine.connect() as conn:
-                upsert = text("""
-                    INSERT INTO app.user_preferences (user_id, pref_key, pref_value, source, updated_at)
-                    VALUES (:uid, 'profile', :val, 'langgraph', now())
-                    ON CONFLICT (user_id, pref_key) DO UPDATE SET
-                        pref_value = :val,
-                        updated_at = now()
-                """)
-                conn.execute(upsert, {"uid": user_id, "val": json.dumps(extract)})
-                conn.commit()
+        with engine.connect() as conn:
+            # We save the 'resolved_dma' as a preference so the agent remembers normalized IDs
+            upsert = text("""
+                INSERT INTO app.user_preferences (user_id, pref_key, pref_value, source, updated_at)
+                VALUES (:uid, 'dma_cache', :val, 'langgraph', now())
+                ON CONFLICT (user_id, pref_key) DO UPDATE SET
+                    pref_value = :val,
+                    updated_at = now()
+            """)
+            conn.execute(upsert, {"uid": user_id, "val": json.dumps(resolved_dma)})
+            conn.commit()
     except Exception as e:
-        logger.error(f"Failed to save profile: {e}")
+        logger.error(f"Failed to persist memory cache: {e}")
         
     return state

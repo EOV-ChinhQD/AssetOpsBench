@@ -1,10 +1,8 @@
-from langgraph.graph import StateGraph, END
-from .nodes.router import ParallelToolNode
-from langchain_core.messages import ToolMessage
-import json
-import re
 import logging
 import os
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
 
 from src.agent.state import AgentState
 from src.agent.nodes.planner import get_planner_node
@@ -13,113 +11,42 @@ from src.agent.nodes.reflect import get_reflect_node
 from src.agent.nodes.synthesize import get_synthesize_node
 from src.agent.nodes.human_review import human_review
 from src.agent.nodes.memory import load_memory, save_memory
-from src.agent.compaction import auto_compact
-from src.agent.nodes.router import tools
 from src.agent.nodes.meta_planner import get_meta_planner_node
+from src.agent.nodes.router import ToolExecutorNode, route_after_core_with_permissions
+from src.agent.nodes.graph_logic import collect_results, route_after_meta
+from src.agent.tools.definitions import tools
 
 logger = logging.getLogger(__name__)
 
-def get_compaction_node(llm):
-    async def compaction_node(state: AgentState) -> dict:
-        return await auto_compact(state, llm, threshold=20)
-    return compaction_node
-
-def collect_results(state: AgentState) -> dict:
-    """Extracts content from ToolMessages only for the CURRENT turn."""
-    results = []
-    plot_url = state.get("plot_url")
-    chart_json = state.get("chart_json")
-    chart_type = state.get("chart_type")
-    
-    curr_messages = state["messages"]
-    idx = len(curr_messages) - 1
-    while idx >= 0 and isinstance(curr_messages[idx], ToolMessage):
-        msg = curr_messages[idx]
-        tool_name = msg.name or "unknown"
-        results.insert(0, {"tool": tool_name, "output": str(msg.content)})
-        
-        if tool_name == "plot_dma":
-            try:
-                content_json = json.loads(str(msg.content))
-                if isinstance(content_json, dict) and "data" in content_json:
-                    data = content_json["data"]
-                    if isinstance(data, dict):
-                        if "chart_json" in data:
-                            chart_json = data["chart_json"]
-                            chart_type = data.get("chart_type", "vegalite")
-                        if "url" in data:
-                            plot_url = data["url"]
-                elif "http" in str(msg.content):
-                    plot_url = str(msg.content)
-            except:
-                if "http" in str(msg.content):
-                    plot_url = str(msg.content)
-        idx -= 1
-    
-    for r in results:
-        tool_name = r["tool"]
-        output_preview = r["output"][:200] if r["output"] else "(empty)"
-        logger.info(f"TOOL_RESULT: tool={tool_name}, output_len={len(r['output'])}, preview={output_preview}")
-            
-    logger.info(f"COLLECT_RESULTS: {len(results)} tool outputs collected, chart={chart_json is not None}")
-    
-    resolved_dma = state.get("resolved_dma", {})
-    for res in results:
-        if res["tool"] == "get_dma_info":
-            try:
-                data = json.loads(res["output"])
-                if data.get("status") == "success" and "dma_id" in data.get("data", {}):
-                    dma_id = data["data"]["dma_id"]
-                    resolved_dma[dma_id] = dma_id
-            except:
-                pass
-
-    return {
-        "tool_results": results, 
-        "plot_url": plot_url, 
-        "chart_json": chart_json, 
-        "chart_type": chart_type,
-        "resolved_dma": resolved_dma
-    }
-
-def route_after_core(state: AgentState) -> str:
-    next_node = state.get("next_node", "synthesize")
-    logger.info(f"ROUTE: planner → {next_node}")
-    return next_node
-
-def route_after_meta(state: AgentState) -> str:
-    next_node = state.get("meta_next_node")
-    if next_node in {"planner", "synthesize"}:
-        return next_node
-
-    verdict = state.get("reflect_verdict", "pass")
-    retry_count = state.get("retry_count", 0)
-
-    if verdict == "pass" or retry_count >= 2:
-        return "synthesize"
-    return "planner"
-
 async def build_graph(llm, db_path=None):
+    """
+    CLEAN ARCHITECTURE: LangGraph Orchestration entry point.
+    """
     workflow = StateGraph(AgentState)
 
+    # 1. Register Core Nodes
+    workflow.add_node("load_memory", load_memory)
     workflow.add_node("planner", get_planner_node(llm))
     workflow.add_node("executor", get_executor_node(llm, tools))
-    workflow.add_node("human_review", human_review)
-    from .nodes.router import registry
-    workflow.add_node("tool_node", ParallelToolNode(registry))
+    workflow.add_node("tool_node", ToolExecutorNode())
     workflow.add_node("collect_results", collect_results)
     workflow.add_node("reflect", get_reflect_node(llm))
     workflow.add_node("meta_planner", get_meta_planner_node(llm))
     workflow.add_node("synthesize", get_synthesize_node(llm))
-    workflow.add_node("load_memory", load_memory)
-    workflow.add_node("compaction", get_compaction_node(llm))
     workflow.add_node("save_memory", save_memory)
+    workflow.add_node("human_review", human_review)
 
+    # 2. Sequential Edges
     workflow.set_entry_point("load_memory")
-    workflow.add_edge("load_memory", "compaction")
-    workflow.add_edge("compaction", "planner")
-    from .nodes.router import route_after_core_with_permissions
-    
+    workflow.add_edge("load_memory", "planner")
+    workflow.add_edge("human_review", "tool_node")
+    workflow.add_edge("tool_node", "collect_results")
+    workflow.add_edge("collect_results", "reflect")
+    workflow.add_edge("reflect", "meta_planner")
+    workflow.add_edge("synthesize", "save_memory")
+    workflow.add_edge("save_memory", END)
+
+    # 3. Dynamic Conditional Edges
     workflow.add_conditional_edges(
         "planner",
         route_after_core_with_permissions,
@@ -140,10 +67,6 @@ async def build_graph(llm, db_path=None):
             "synthesize": "synthesize"
         }
     )
-    workflow.add_edge("human_review", "tool_node")
-    workflow.add_edge("tool_node", "collect_results")
-    workflow.add_edge("collect_results", "reflect")
-    workflow.add_edge("reflect", "meta_planner")
 
     workflow.add_conditional_edges(
         "meta_planner",
@@ -154,25 +77,12 @@ async def build_graph(llm, db_path=None):
         }
     )
 
-    workflow.add_edge("synthesize", "save_memory")
-    workflow.add_edge("save_memory", END)
-
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    from psycopg_pool import AsyncConnectionPool
-    
-    # 🟢 Persistence: Use Async Postgres for reliable session storage
-    connection_string = os.getenv("HANOI_WATER_DB_URL")
-    if not connection_string:
-         # Fallback for local testing if env not loaded
-         connection_string = "postgresql://user:pass@localhost:5433/hanoiwatertb"
-
+    # 4. Persistence (Postgres)
+    connection_string = os.getenv("HANOI_WATER_DB_URL") or "postgresql://user:pass@localhost:5433/hanoiwatertb"
     pool = AsyncConnectionPool(conninfo=connection_string, max_size=10, kwargs={"autocommit": True}, open=False)
     await pool.open()
+    
     cp = AsyncPostgresSaver(pool)
-    # Important: setup() creates the required tables if they don't exist
     await cp.setup()
     
-    graph = workflow.compile(
-        checkpointer=cp,
-    )
-    return graph
+    return workflow.compile(checkpointer=cp)

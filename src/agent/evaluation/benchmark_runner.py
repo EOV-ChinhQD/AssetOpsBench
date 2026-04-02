@@ -20,9 +20,29 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("benchmark")
+async def cleanup_database():
+    """Cleans up the LangGraph checkpointer and User Preferences for a fresh run."""
+    from src.hanoi_water_db import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+    if not engine:
+        print("⚠️  Warning: DB engine not available for cleanup.")
+        return
+    
+    print("🧹 CLEANING: Purging checkpointer and user memory for a fresh benchmark...")
+    try:
+        with engine.connect() as conn:
+            # Clean LangGraph persistence tables
+            conn.execute(text("TRUNCATE checkpoints, checkpoint_blobs, checkpoint_writes CASCADE"))
+            # Clean User Preferences (DMA Cache, etc)
+            conn.execute(text("TRUNCATE app.user_preferences CASCADE"))
+            conn.commit()
+            print("✨ CLEANUP SUCCESS: Database is fresh.")
+    except Exception as e:
+        print(f"❌ CLEANUP FAILED: {e}")
 
 async def run_benchmark():
+    await cleanup_database()
     llm = LangchainLiteLLM()
     agent = await build_graph(llm)
     evaluator = TrajectoryEvaluator(llm)
@@ -50,27 +70,40 @@ async def run_benchmark():
         final_answer = "No response"
 
         try:
-            # 🟢 STREAMING EXECUTION LOGS
-            print(f"\n--- EXECUTION LOG ---")
-            async for event in agent.astream(inputs, config, stream_mode="values"):
-                if "messages" in event:
-                    last_msg = event["messages"][-1]
+            # 🟢 STREAMING UPDATES FOR VERBOSE PROCESS & RESULTS
+            print(f"\n--- PROCESS FLOW ---")
+            async for event in agent.astream(inputs, config, stream_mode="updates"):
+                for node_name, update in event.items():
+                    print(f"\n[NODE: {node_name.upper()}]")
                     
-                    # 1. Log AI Reasoning
-                    if hasattr(last_msg, "content") and last_msg.content and not hasattr(last_msg, "tool_calls"):
-                        if len(last_msg.content) > 10:
-                            print(f"🤖 AGENT: {last_msg.content[:200]}...")
+                    # 1. Log Monologue
+                    if "internal_monologue" in update:
+                        print(f"💭 {update['internal_monologue']}")
                     
-                    # 2. Log Tool Calls
-                    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                        for tc_call in last_msg.tool_calls:
-                            print(f"🛠️  CALLING TOOL: {tc_call['name']}({tc_call['args']})")
+                    # 2. Log Tool Calls from AI
+                    if "messages" in update:
+                        last_msg = update["messages"][-1]
+                        if last_msg.type == "ai":
+                            if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                                for tc_call in last_msg.tool_calls:
+                                    print(f"🛠️  REQUEST: {tc_call['name']}({json.dumps(tc_call['args'], ensure_ascii=False)})")
+                            elif last_msg.content:
+                                print(f"🤖 AGENT: {last_msg.content}")
+                        
+                        # 3. Log Tool Results (When tool_node or collect_results runs)
+                        elif last_msg.type == "tool":
+                            content_preview = str(last_msg.content)
+                            if len(content_preview) > 500:
+                                content_preview = content_preview[:500] + "..."
+                            print(f"✅ RESULT [{last_msg.name}]: {content_preview}")
                     
-                    # 3. Log Tool Results
-                    if last_msg.type == "tool":
-                        print(f"✅ TOOL RESULT [{last_msg.name}]: {str(last_msg.content)[:300]}...")
-
-            # Get final state
+                    # 4. Log Reflection Verdicts
+                    if "reflect_verdict" in update:
+                        print(f"🧐 AUDIT: {update['reflect_verdict'].upper()} - {update.get('reflect_notes', '')}")
+                    if "meta_instructions" in update and update["meta_instructions"]:
+                        print(f"🎯 META: {update['meta_instructions']}")
+            
+            # Get final state for evaluation
             final_state = await agent.aget_state(config)
             output = final_state.values
             final_answer = output["messages"][-1].content if output.get("messages") else "No response"

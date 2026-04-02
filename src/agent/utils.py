@@ -58,3 +58,42 @@ def parse_json_from_llm(text: str) -> dict:
     except Exception as e:
         print(f"FAILED_PARSE_DEBUG: {text[:300]}")
         return {"internal_monologue": f"Error: {str(e)}", "next_node": "synthesize"}
+
+def format_tool_results(messages: list) -> str:
+    """Formats list of LangChain messages into a structured context string."""
+    from langchain_core.messages import ToolMessage
+    import re
+    results_context = ""
+    seen_tools = set()
+    
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            tool_name = getattr(msg, 'name', 'tool') or "tool"
+            out_raw = str(msg.content)
+            
+            # Simple deduplication
+            tool_key = f"{tool_name}:{out_raw[:100]}"
+            if tool_key in seen_tools: continue
+            seen_tools.add(tool_key)
+            
+            # Clean display formatting
+            try:
+                data = json.loads(out_raw)
+                if isinstance(data, dict):
+                    payload = data.get('data')
+                    msg_str = data.get('message', '')
+                    if isinstance(payload, list):
+                        fmt = [str(x) for x in payload]
+                        out = f"{msg_str}\n" + "\n".join(fmt)
+                    else:
+                        out = f"{msg_str} {json.dumps(payload, ensure_ascii=False) if payload else ''}"
+                else: 
+                    out = out_raw
+            except: 
+                out = out_raw
+
+            if len(out) > 5000: out = out[:5000] + "..."
+            results_context += f"\n--- {tool_name.upper()} ---\n{out}\n"
+            
+    return results_context
+
