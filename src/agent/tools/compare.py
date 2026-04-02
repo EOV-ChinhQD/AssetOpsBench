@@ -3,7 +3,7 @@ import asyncio
 from typing import Dict, Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
-from src.api.server.deps import get_repo_dep
+from src.deps import get_repo_dep
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ async def get_comparison_async(dma_id: str, period_a_start: str, period_a_end: s
                                 period_b_start: str, period_b_end: str) -> str:
     """So sánh tiêu thụ của 1 DMA giữa hai kỳ thời gian."""
     try:
-        from src.api.server.utils.normalization import normalize_dma_id
+        from src.utils.normalization import normalize_dma_id
         dma_id = normalize_dma_id(dma_id)
         
         repo = get_repo_dep()

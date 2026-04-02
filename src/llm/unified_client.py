@@ -9,22 +9,54 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 logger = logging.getLogger(__name__)
 
 class UnifiedLLMClient:
-    """
-    A unified client to handle OpenAI-compatible and Cloudflare APIs.
-    """
     def __init__(self, model_id: Optional[str] = None):
         self.model_id = model_id or settings.LLM_MODEL_NAME
-        self.base_url = settings.LLM_BASE_URL
+        self.provider = settings.LLM_PROVIDER
         self.api_key = settings.LLM_API_KEY
+        
+        # Log basic info (masked key)
+        logger.info(f"LLM_CLIENT: provider={self.provider}, model={self.model_id}")
 
     def generate(self, messages: List[Dict[str, str]], temperature: float = 0.1) -> str:
-        """
-        Generates a response using the configured provider.
-        """
-        if "cloudflare" in self.model_id.lower() or self.model_id.startswith("@cf/"):
+        if self.provider == "GOOGLE":
+            return self._call_google_gemini(messages, temperature)
+        elif self.provider == "CLOUDFLARE" or self.model_id.startswith("@cf/"):
             return self._call_cloudflare(messages, temperature)
         else:
             return self._call_openai_compatible(messages, temperature)
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    def _call_google_gemini(self, messages: List[Dict[str, str]], temperature: float) -> str:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=self.api_key)
+            
+            # Simple conversion to flat prompt (Gemma/Gemini prompt-tuning style)
+            prompt = ""
+            for m in messages:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                prompt += f"{role.upper()}: {content}\n\n"
+            
+            # Clean model name if it doesn't have prefix
+            m_name = self.model_id
+            if not m_name.startswith("models/"):
+                m_name = f"models/{m_name}"
+
+            model = genai.GenerativeModel(m_name)
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(temperature=temperature)
+            )
+            
+            if not response.text:
+                logger.warning(f"Google Model {m_name} returned empty text.")
+                return ""
+                
+            return response.text
+        except Exception as e:
+            logger.error(f"Google Gemini/Gemma Error: {str(e)}")
+            raise
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def _call_openai_compatible(self, messages: List[Dict[str, str]], temperature: float) -> str:
@@ -36,7 +68,8 @@ class UnifiedLLMClient:
         }
         headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
-            resp = requests.post(f"{self.base_url}/chat/completions", json=payload, headers=headers, timeout=120)
+            # Note: settings.LLM_BASE_URL is handled by Computed Properties in Settings class
+            resp = requests.post(f"{settings.LLM_BASE_URL}/chat/completions", json=payload, headers=headers, timeout=120)
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:

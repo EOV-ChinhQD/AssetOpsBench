@@ -1,13 +1,13 @@
 import json
 import asyncio
 from langchain_core.tools import Tool
-from src.api.server.tools.executors.preference_executor import update_user_preference
-from src.api.server.tools.contracts import PreferenceUpdateRequest
-from src.api.server.deps import get_repo_dep
+from src.tools.executors.preference_executor import update_user_preference
+from src.tools.contracts import PreferenceUpdateRequest
+from src.deps import get_repo_dep
 
 async def update_preference_async(input_str: str) -> str:
     """Input: key=...,value=..."""
-    from src.api.server.agent.tools.historical import parse_tool_input
+    from src.agent.tools.historical import parse_tool_input
     params = parse_tool_input(input_str)
     
     key = params.get("key", "").strip()

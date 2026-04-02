@@ -1,33 +1,56 @@
 import json
 import logging
+from datetime import datetime
 import pandas as pd
 from typing import Optional
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from src.api.server.tools.llm_provider import get_langchain_llm
-from src.api.server.deps import get_repo_dep
+from src.agent.llm_utils import get_llm_for_purpose
+from src.deps import get_repo_dep
 
 logger = logging.getLogger(__name__)
 
 class TextToSqlInput(BaseModel):
-    question: str = Field(description="Câu hỏi tự nhiên Tiếng Việt cần chuyển sang SQL (ví dụ: 'Tổng sản lượng tháng 1/2026')")
+    question: str = Field(description="Câu hỏi tự nhiên Tiếng Việt cần chuyển sang SQL (ví dụ: 'Tổng sản lượng tháng trước')")
+
+def _format_month_variants(month: int, year: int) -> set[str]:
+    padded = f"{month:02d}"
+    return {
+        f"{month}/{year}",
+        f"{padded}/{year}",
+        f"{year}-{padded}",
+        f"tháng {month}/{year}",
+        f"tháng {padded}/{year}",
+    }
+
 
 def _detect_tables(question: str) -> str:
     """Phân tích câu hỏi để xác định bảng nào cần query."""
     q_lower = question.lower()
-    needs_silver = any(kw in q_lower for kw in [
-        '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018',
-        'tháng 1/2026', '01/2026', '2026-01', 'q4/2025', 'q3/2025', 'q2/2025', 'q1/2025',
-        'lịch sử', 'thực tế', 'quý 4', 'quý 3', 'năm 2025', 'trung bình năm',
-    ])
-    needs_gold = any(kw in q_lower for kw in [
-        'dự báo', 'tháng 2/2026', 'tháng 3/2026', 'tháng 4/2026',
-        '02/2026', '03/2026', '04/2026', '2026-02', '2026-03', '2026-04',
-        'q1/2026', 'quý 1/2026',
-    ])
-    
+    now = datetime.now()
+    prev_month = now.month - 1 if now.month > 1 else 12
+    prev_year = now.year if now.month > 1 else now.year - 1
+    next_month = now.month + 1 if now.month < 12 else 1
+    next_year = now.year if now.month < 12 else now.year + 1
+
+    silver_keywords = {'lịch sử', 'thực tế', 'quý', 'năm', 'trung bình', 'tháng trước', 'tháng vừa rồi', 'trong năm'}
+    gold_keywords = {'dự báo', 'tháng tới', 'tháng sau', 'horizon', 'dự đoán', 'tiếp theo'}
+
+    silver_dynamic = _format_month_variants(prev_month, prev_year) | _format_month_variants(now.month, now.year)
+    gold_dynamic = _format_month_variants(next_month, next_year)
+    historical_years = {str(now.year), str(now.year - 1), str(now.year - 2)}
+
+    needs_silver = any(kw in q_lower for kw in silver_keywords)
+    needs_silver = needs_silver or any(kw in q_lower for kw in silver_dynamic)
+    needs_silver = needs_silver or any(kw in q_lower for kw in historical_years)
+    needs_silver = needs_silver or 'history' in q_lower
+
+    needs_gold = any(kw in q_lower for kw in gold_keywords)
+    needs_gold = needs_gold or any(kw in q_lower for kw in gold_dynamic)
+    needs_gold = needs_gold or 'forecast' in q_lower
+
     if needs_silver and needs_gold:
         return "UNION_BOTH"
     elif needs_gold:
@@ -41,15 +64,16 @@ async def text_to_sql_async(question: str) -> str:
     Hỗ trợ: Tổng hệ thống, TOP N, Lọc theo thời gian, So sánh vùng, Tăng trưởng.
     """
     try:
-        llm = get_langchain_llm()
+        llm = get_llm_for_purpose()
         repo = get_repo_dep()
         
         # Auto-detect which tables are relevant
         table_hint = _detect_tables(question)
         logger.info(f"SQL_INPUT: question='{question}', table_hint={table_hint}")
         
+        now_label = datetime.now().strftime("Tháng %m/%Y")
         system_prompt = f"""Bạn là chuyên gia SQL cho hệ thống cấp nước Hà Nội.
-THỜI GIAN HIỆN TẠI: Tháng 01/2026.
+THỜI GIAN HIỆN TẠI: {now_label}.
 GỢI Ý BẢNG: {table_hint}
 
 ### SCHEMA:

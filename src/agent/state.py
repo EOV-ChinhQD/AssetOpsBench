@@ -29,6 +29,13 @@ class AgentState(TypedDict):
     chart_json: Optional[dict]
     chart_type: Optional[str]
 
+    # Meta-planning & reflection history
+    reflection_history: list[dict]
+    planner_hints: dict
+    meta_instructions: Optional[str]
+    meta_next_node: str
+    last_verdict: str
+
     # Context & Persistent Memory
     long_term_context: str
     resolved_dma: dict              # Cache: {query: id}

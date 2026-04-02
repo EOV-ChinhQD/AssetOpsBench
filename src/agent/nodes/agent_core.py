@@ -2,12 +2,20 @@ import json
 import logging
 import re
 import uuid
+import warnings
 from typing import List, Optional
 from langchain_core.messages import SystemMessage, AIMessage
 from ..state import AgentState
 from ..transcript import log_transcript
 
 logger = logging.getLogger(__name__)
+
+warnings.warn(
+    "agent_core is deprecated. The agent now uses planner.py + executor.py. "
+    "Do not import or execute agent_core unless you are debugging the legacy flow.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 AGENT_CORE_PROMPT = """Bạn là Chuyên gia Vận hành Cấp nước (Senior Water Operations Engineer) tại Hanoi Water AI.
 Nhiệm vụ: Phân tích, điều phối và tối ưu hóa hoạt động của mạng lưới cấp nước Hà Nội. Hãy đưa ra các phân tích có tính chuyên môn cao, chính xác và thực tế.

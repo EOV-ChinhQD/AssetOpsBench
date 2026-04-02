@@ -4,10 +4,10 @@ import asyncio
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from src.api.server.agent.tools.historical import parse_tool_input
-from src.api.server.tools.executors.forecast_executor import execute_forecast
-from src.api.server.tools.contracts import ForecastRequest
-from src.api.server.deps import get_forecasting_service_dep, get_long_term_service_dep, get_model_dep, get_repo_dep
+from src.agent.tools.historical import parse_tool_input
+from src.tools.executors.forecast_executor import execute_forecast
+from src.tools.contracts import ForecastRequest
+from src.deps import get_forecasting_service_dep, get_long_term_service_dep, get_model_dep, get_repo_dep
 
 class ForecastInput(BaseModel):
     dma_id: str = Field(description="Mã DMA cụ thể (ví dụ: 17-TL)")
@@ -16,7 +16,7 @@ class ForecastInput(BaseModel):
 async def get_forecast_async(dma_id: str, horizon_months: int = 1) -> dict:
     """Lấy dữ liệu DỰ BÁO (tương lai) và TRẢ VỀ bản tóm tắt phân tích (summary, capacity_pct, warning_level)."""
     try:
-        from src.api.server.utils.normalization import normalize_dma_id
+        from src.utils.normalization import normalize_dma_id
         import logging
         logger = logging.getLogger(__name__)
         

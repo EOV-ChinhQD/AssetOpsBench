@@ -2,6 +2,8 @@ import json
 import re
 import uuid
 import logging
+import os
+import asyncio
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -13,11 +15,15 @@ from src.agent.mcp_client import call_mcp_tool
 logger = logging.getLogger(__name__)
 
 # --- Phase 1: Tool Registry & Security Metadata ---
+DEFAULT_MAX_TOOL_CONCURRENCY = int(os.getenv("HANOI_TOOL_MAX_CONCURRENCY", "3"))
+
+
 class ToolMetadata(BaseModel):
     name: str
     is_concurrency_safe: bool = True
-    category: str = "FETCH" # FETCH, SEARCH, WRITE, DANGEROUS
+    category: str = "FETCH"  # FETCH, SEARCH, WRITE, DANGEROUS
     requires_permission: bool = False
+    max_concurrent: Optional[int] = None
 
 class WaterToolRegistry:
     """Central registry to manage water-specific tools and their metadata."""
@@ -73,10 +79,15 @@ class TaskUpdateInput(BaseModel):
 
 # --- Optimized Tool Definitions ---
 
+async def _get_dma_info_wrapper(dma_query=None, dma_id=None):
+    if not (dma_query or dma_id):
+        return "Lỗi: Bạn cần cung cấp tên trạm hoặc mã hiệu (Vd: 'Trạm Long Biên')."
+    return await call_mcp_tool(HANOI_SERVER, "get_dma_info", {"dma_query": dma_query or dma_id})
+
 mcp_dma_info = StructuredTool.from_function(
     name="get_dma_info",
-    description="XÁC THỰC & THÔNG TIN TRẠM: Chuẩn hóa mã DMA (Vd: 'Long Biên' -> '01-LB') và lấy thông tin chi tiết (quận, vùng, công suất). LUÔN dùng tool này đầu tiên.",
-    coroutine=lambda dma_query=None, dma_id=None: call_mcp_tool(HANOI_SERVER, "get_dma_info", {"dma_query": dma_query or dma_id}),
+    description="XÁC THỰC & THÔNG TIN TRẠM: Chuẩn hóa mã DMA (Vd: 'Long Biên' -> '01-LB'). LUÔN dùng tool này đầu tiên nếu chưa biết chính xác mã hiệu.",
+    coroutine=_get_dma_info_wrapper,
     args_schema=DmaQueryInput
 )
 
@@ -87,12 +98,15 @@ mcp_text_to_sql = StructuredTool.from_function(
     args_schema=SqlQueryInput
 )
 
+async def _get_history_wrapper(dma_id=None, dma_query=None, months=12, year=None, month=None):
+    if not (dma_id or dma_query):
+        return "Lỗi: Thiếu mã hiệu DMA chuẩn. Hãy dùng get_dma_info để tìm mã trước."
+    return await call_mcp_tool(HANOI_SERVER, "get_history", {"dma_id": dma_id or dma_query, "months": months, "year": year, "month": month})
+
 mcp_history = StructuredTool.from_function(
     name="get_history",
-    description="DỮ LIỆU THỰC TẾ: Lấy sản lượng nước thực tế (silver) theo tháng.",
-    coroutine=lambda dma_id=None, dma_query=None, months=12, year=None, month=None: call_mcp_tool(
-        HANOI_SERVER, "get_history", {"dma_id": dma_id or dma_query, "months": months, "year": year, "month": month}
-    ),
+    description="DỮ LIỆU THỰC TẾ: Lấy sản lượng nước thực tế (silver) theo tháng. Cần mã hiệu chuẩn (Vd: '01-LB').",
+    coroutine=_get_history_wrapper,
     args_schema=HistoricalInput
 )
 
@@ -142,8 +156,10 @@ from langchain_core.messages import ToolMessage
 
 class ParallelToolNode:
     """Optimized ToolNode that runs concurrent-safe tools in parallel."""
-    def __init__(self, registry: WaterToolRegistry):
+    def __init__(self, registry: WaterToolRegistry, default_max_concurrency: int = DEFAULT_MAX_TOOL_CONCURRENCY):
         self.registry = registry
+        self.default_max_concurrency = default_max_concurrency
+        self._semaphores: dict[int, asyncio.Semaphore] = {}
 
     async def __call__(self, state: AgentState) -> dict:
         messages = state.get("messages", [])
@@ -163,11 +179,12 @@ class ParallelToolNode:
             
             if tool and (meta.is_concurrency_safe if meta else True):
                 logger.info(f"PARALLEL_EXEC: Adding task for water-tool {name}")
-                tasks.append(self._run_tool(tool, args, tool_call["id"]))
+                limit = (meta.max_concurrent if meta and meta.max_concurrent else self.default_max_concurrency)
+                tasks.append(self._run_tool(tool, args, tool_call["id"], concurrency_limit=limit))
             elif tool:
                 # Sequential tool (not concurrency safe or metadata missing)
                 logger.warning(f"PARALLEL_EXEC: Tool {name} not marked as safe. Executing sequentially.")
-                tasks.append(self._run_tool(tool, args, tool_call["id"]))
+                tasks.append(self._run_tool(tool, args, tool_call["id"], concurrency_limit=None))
             else:
                 logger.error(f"PARALLEL_EXEC: Tool {name} not found")
                 tasks.append(asyncio.sleep(0, result=ToolMessage(
@@ -179,7 +196,23 @@ class ParallelToolNode:
         results = await asyncio.gather(*tasks)
         return {"messages": results}
 
-    async def _run_tool(self, tool, args, tc_id):
+    def _get_semaphore(self, limit: Optional[int]):
+        if not limit or limit <= 0:
+            return None
+        if limit not in self._semaphores:
+            self._semaphores[limit] = asyncio.Semaphore(limit)
+        return self._semaphores[limit]
+
+    async def _run_tool(self, tool, args, tc_id, concurrency_limit: Optional[int]):
+        semaphore = self._get_semaphore(concurrency_limit)
+        if semaphore:
+            if semaphore._value <= 0:
+                logger.warning(f"PARALLEL_EXEC: waiting for concurrency slot (limit={concurrency_limit}) for {tool.name}")
+            async with semaphore:
+                return await self._invoke_tool(tool, args, tc_id)
+        return await self._invoke_tool(tool, args, tc_id)
+
+    async def _invoke_tool(self, tool, args, tc_id):
         try:
             res = await tool.ainvoke(args)
             return ToolMessage(content=str(res), tool_call_id=tc_id, name=tool.name)
@@ -235,4 +268,3 @@ def route_after_core_with_permissions(state: AgentState) -> str:
     if next_node == "response": return "synthesize"
     
     return next_node
-

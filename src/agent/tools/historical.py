@@ -5,9 +5,9 @@ import logging
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from src.api.server.tools.executors.history_executor import execute_history
-from src.api.server.tools.contracts import HistoryRequest
-from src.api.server.deps import get_repo_dep
+from src.tools.executors.history_executor import execute_history
+from src.tools.contracts import HistoryRequest
+from src.deps import get_repo_dep
 
 def parse_tool_input(input_str: str) -> dict:
     input_str = input_str.strip().strip("'").strip('"')
@@ -29,7 +29,7 @@ class HistoricalInput(BaseModel):
 async def get_historical_async(dma_id: str, months: int = 12) -> str:
     """Lấy dữ liệu LỊCH SỬ (đã xảy ra) và TRẢ VỀ bản tóm tắt phân tích (avg, max, min, trend, bất thường)."""
     try:
-        from src.api.server.utils.normalization import normalize_dma_id
+        from src.utils.normalization import normalize_dma_id
         dma_id = normalize_dma_id(dma_id)
         
         req = HistoryRequest(dma_id=dma_id, months=months, audit_id="langgraph")

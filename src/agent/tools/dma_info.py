@@ -2,8 +2,8 @@ import logging
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
-from src.api.server.deps import get_repo_dep
-from src.api.server.utils.normalization import normalize_dma_id
+from src.deps import get_repo_dep
+from src.utils.normalization import normalize_dma_id
 
 logger = logging.getLogger(__name__)
 

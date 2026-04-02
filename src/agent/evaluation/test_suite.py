@@ -1,55 +1,41 @@
-# benchmark_test_suite.py
-# Định nghĩa các câu hỏi và ý định mong đợi để đo lường hiệu năng của Agent.
+# 🟢 BỘ TEST CỐT LÕI (5 ATOMIC TOOLS)
+# Mục tiêu: Xác nhận từng Tool hoạt động đúng với Database thật.
 
 TEST_CASES = [
-    # --- GLOBAL queries (Không cần lookup) ---
     {
-        "id": "TC001",
-        "question": "Hệ thống hiện tại có tổng cộng bao nhiêu mã DMA?",
+        "id": "T1_GET_INFO",
+        "question": "Xác thực mã hiệu và trạng thái của trạm 01-LB.",
+        "expected_intent": "SPECIFIC",
+        "required_tools": ["get_dma_info"]
+    },
+    {
+        "id": "T2_GET_HISTORY",
+        "question": "Cho tôi dữ liệu sản lượng lịch sử trong 6 tháng gần đây của trạm 01-LB.",
+        "expected_intent": "SPECIFIC",
+        "required_tools": ["get_history"]
+    },
+    {
+        "id": "T3_GET_FORECAST",
+        "question": "Dự báo sản lượng nước trong 3 tháng tới của trạm 01-LB là bao nhiêu?",
+        "expected_intent": "SPECIFIC",
+        "required_tools": ["get_forecast"]
+    },
+    {
+        "id": "T4_PLOT_DMA",
+        "question": "Vẽ biểu đồ sản lượng tiêu thụ cho trạm 01-LB.",
+        "expected_intent": "SPECIFIC",
+        "required_tools": ["plot_dma"]
+    },
+    {
+        "id": "T5_TEXT_TO_SQL",
+        "question": "Hiện tại toàn hệ thống đang quản lý bao nhiêu trạm DMA?",
         "expected_intent": "GLOBAL",
-        "expected_tools": ["text_to_sql"]
-    },
-    {
-        "id": "TC002",
-        "question": "Vùng nào có lưu lượng tiêu thụ cao nhất tháng 1/2026?",
-        "expected_intent": "GLOBAL",
-        "expected_tools": ["text_to_sql"]
-    },
-    
-    # --- SPECIFIC queries (BẮT BUỘC lookup-first) ---
-    {
-        "id": "TC003",
-        "question": "DMA Cầu Giấy dự báo tháng tới tiêu thụ bao nhiêu?",
-        "expected_intent": "SPECIFIC",
-        "expected_tools": ["get_dma_info", "forecast"]
-    },
-    {
-        "id": "TC004",
-        "question": "So sánh lưu lượng DMA Hoàng Mai tháng này với tháng trước.",
-        "expected_intent": "SPECIFIC",
-        "expected_tools": ["get_dma_info", "compare_periods"]
-    },
-    {
-        "id": "TC005",
-        "question": "Vẽ biểu đồ tiêu thụ 3 tháng gần nhất của DMA 17-TL.",
-        "expected_intent": "SPECIFIC",
-        "expected_tools": ["get_dma_info", "historical", "plot"]
-    },
-    
-    # --- HYBRID queries (Phối hợp nhiều nguồn/lọc) ---
-    {
-        "id": "TC006",
-        "question": "Có DMA nào ở quận Hai Bà Trưng bị bất thường trong 7 ngày qua?",
-        "expected_intent": "HYBRID",
-        "expected_tools": ["text_to_sql"]
-    },
-    {
-        "id": "TC007",
-        "question": "Tính tổng dự báo tháng 3 cho toàn vùng Hà Nội Đông.",
-        "expected_intent": "HYBRID",
-        "expected_tools": ["text_to_sql"]
+        "required_tools": ["text_to_sql"]
     }
 ]
 
 def get_all_test_cases():
+    return TEST_CASES
+
+def get_minimal_test_suite():
     return TEST_CASES

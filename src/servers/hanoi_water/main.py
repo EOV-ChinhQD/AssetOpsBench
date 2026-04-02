@@ -8,6 +8,7 @@ from sqlalchemy import text
 from src.config.settings import settings
 from src.hanoi_water_db import get_engine
 from src.llm.unified_client import UnifiedLLMClient
+from src.agent.plotting import build_plot_payload
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,38 +33,14 @@ def wrap_tool_result(status: str, data: Any, message: str = "") -> str:
 
 # --- CORE LOGIC ---
 
-async def _get_dma_info_logic(dma_query: str) -> str:
+async def _get_dma_info_logic(dma_query: Optional[str]) -> str:
     if not engine: return wrap_tool_result("error", None, "Không có DB.")
+    if not dma_query: return wrap_tool_result("error", None, "Thiếu tham số dma_query để tra cứu.")
     
-    # 1. Tra cứu trong Registry (JSON) để lấy metadata & fuzzy match
-    import os
-    registry_path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "dma_registry.json")
-    registry = {}
-    try:
-        with open(registry_path, "r", encoding="utf-8") as f:
-            registry = json.load(f)
-    except: pass
-
     clean_query = normalize_dma_id(dma_query)
     found_metadata = None
     standardized_id = None
-
-    # Tìm chính xác trong Registry
-    if clean_query in registry:
-        standardized_id = clean_query
-        found_metadata = registry[clean_query]
-    else:
-        # Tìm fuzzy trong Registry (theo tên quận, vùng...)
-        q_lower = dma_query.lower().strip()
-        for code, info in registry.items():
-            if (q_lower in info.get("name", "").lower() or 
-                q_lower in info.get("district", "").lower() or
-                q_lower in code.lower()):
-                standardized_id = code
-                found_metadata = info
-                break
-
-    # 2. Kiểm tra lại trong Database nếu chưa thấy trong Registry (hoặc để đảm bảo tồn tại)
+    
     try:
         with engine.connect() as conn:
             q_to_check = standardized_id or clean_query
@@ -248,7 +225,16 @@ async def get_forecast(dma_id: Optional[str] = None, dma_query: Optional[str] = 
 @mcp.tool()
 async def plot_dma(dma_id: Optional[str] = None, dma_query: Optional[str] = None, include_forecast: bool = True) -> str:
     """Vẽ biểu đồ tiêu thụ nước (Thực tế + Dự báo)."""
-    return wrap_tool_result("success", {"url": f"{settings.IMAGE_BASE_URL}/mock_plot.png"}, f"Đã vẽ biểu đồ cho {dma_id or dma_query}.")
+    target = dma_id or dma_query
+    if not target:
+        return wrap_tool_result("error", None, "Thiếu mã DMA để vẽ biểu đồ.")
+    try:
+        payload = build_plot_payload(target, include_forecast)
+        return wrap_tool_result("success", payload, payload.get("message", ""))
+    except ValueError as exc:
+        return wrap_tool_result("error", None, str(exc))
+    except RuntimeError as exc:
+        return wrap_tool_result("error", None, str(exc))
 
 @mcp.tool()
 async def check_data_quality(dma_id: str, year: int = 2024, month: int = 10) -> str:

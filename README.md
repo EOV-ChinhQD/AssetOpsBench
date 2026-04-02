@@ -151,6 +151,18 @@ See **[INSTRUCTIONS.md](./INSTRUCTIONS.md)** for setup, usage, and testing.
 
 ---
 
+## 🚧 Operational Notes
+
+### Agent architecture
+- The current planner/executor flow lives in `src/agent/nodes/planner.py`, `executor.py`, `reflect.py`, and the new `meta_planner.py`. The legacy `agent_core.py` remains only for archival reference and now raises a `DeprecationWarning` when imported to remind contributors to use the modular nodes.
+- Keep `src/agent/graph.py` aligned with this flow so the meta-planner can inject corrections, and avoid importing `agent_core` into new code paths.
+
+### Database security
+- `text_to_sql` executes SQL via `get_repo_dep()` (configured through `src/config/settings.py`). Always bind it to a database account with `SELECT` privileges only on the `silver.*` and `gold.*` schemas to prevent accidental DML/DDL execution.
+- When those credentials change, run a quick check such as `SELECT has_table_privilege(current_user, 'silver.stg_water_demand', 'SELECT')` and confirm that `has_table_privilege(..., 'UPDATE')` returns `FALSE`.
+
+---
+
 ## Leaderboards
 - Evaluated with **7 Large Language Models**  
 - Trajectories scored using **LLM Judge (Llama-4-Maverick-17B)**  

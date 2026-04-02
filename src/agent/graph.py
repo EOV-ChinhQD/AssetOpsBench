@@ -15,6 +15,7 @@ from src.agent.nodes.human_review import human_review
 from src.agent.nodes.memory import load_memory, save_memory
 from src.agent.compaction import auto_compact
 from src.agent.nodes.router import tools
+from src.agent.nodes.meta_planner import get_meta_planner_node
 
 logger = logging.getLogger(__name__)
 
@@ -83,16 +84,20 @@ def collect_results(state: AgentState) -> dict:
 
 def route_after_core(state: AgentState) -> str:
     next_node = state.get("next_node", "synthesize")
-    logger.info(f"ROUTE: agent_core → {next_node}")
+    logger.info(f"ROUTE: planner → {next_node}")
     return next_node
 
-def route_after_reflect(state: AgentState) -> str:
+def route_after_meta(state: AgentState) -> str:
+    next_node = state.get("meta_next_node")
+    if next_node in {"planner", "synthesize"}:
+        return next_node
+
     verdict = state.get("reflect_verdict", "pass")
     retry_count = state.get("retry_count", 0)
-    
+
     if verdict == "pass" or retry_count >= 2:
         return "synthesize"
-    return "agent_core"
+    return "planner"
 
 async def build_graph(llm, db_path=None):
     workflow = StateGraph(AgentState)
@@ -104,7 +109,10 @@ async def build_graph(llm, db_path=None):
     workflow.add_node("tool_node", ParallelToolNode(registry))
     workflow.add_node("collect_results", collect_results)
     workflow.add_node("reflect", get_reflect_node(llm))
+    workflow.add_node("meta_planner", get_meta_planner_node(llm))
     workflow.add_node("synthesize", get_synthesize_node(llm))
+    workflow.add_node("load_memory", load_memory)
+    workflow.add_node("compaction", get_compaction_node(llm))
     workflow.add_node("save_memory", save_memory)
 
     workflow.set_entry_point("load_memory")
@@ -133,10 +141,11 @@ async def build_graph(llm, db_path=None):
     workflow.add_edge("human_review", "tool_node")
     workflow.add_edge("tool_node", "collect_results")
     workflow.add_edge("collect_results", "reflect")
+    workflow.add_edge("reflect", "meta_planner")
 
     workflow.add_conditional_edges(
-        "reflect",
-        route_after_reflect,
+        "meta_planner",
+        route_after_meta,
         {
             "synthesize": "synthesize", 
             "planner": "planner"
