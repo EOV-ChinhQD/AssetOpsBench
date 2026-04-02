@@ -5,6 +5,7 @@ from typing import List, Optional
 from langchain_core.messages import SystemMessage, AIMessage
 from ..state import AgentState
 from ..transcript import log_transcript
+from ..utils import parse_json_from_llm
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +63,17 @@ def get_planner_node(llm):
             ])
             
             raw_text = response.content
-            # Extract JSON
-            json_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-            data_str = json_match.group(1).strip() if json_match else raw_text.strip()
-            
             try:
-                 data = json.loads(data_str)
-            except:
-                 data = json.loads(re.search(r"\{.*\}", data_str, re.DOTALL).group(0))
+                data = parse_json_from_llm(raw_text)
+            except Exception as e:
+                logger.error(f"Failed to parse Planner output: {e}")
+                return {"next_node": "executor"}
 
             res = {
                 "messages": [AIMessage(content=f"[PLANNER]: {data.get('internal_monologue', '')}")],
                 "task_list": data.get("updated_task_list", state.get("task_list", [])),
                 "thought": data.get("internal_monologue", ""),
-                "next_node": data.get("next_node", "executor")
+                "next_node": "executor"  # 🛡️ ARCHITECT GUARD: Always route to Technician
             }
             return res
             

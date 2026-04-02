@@ -1,9 +1,9 @@
-import json
 import logging
 import asyncio
 import uuid
 import datetime
 import os
+import traceback
 from typing import List, Dict, Any
 
 # Fix path
@@ -38,10 +38,9 @@ async def run_benchmark():
         print(f"\n{'='*20} [{idx+1}/{len(test_cases)}] CASE {tc['id']} {'='*20}")
         print(f"QUESTION: {tc['question']}")
         
-        # Throttling to avoid 429 (Groq Free Tier)
+        # Small delay for UI readability (Local LLM has no rate limits!)
         if idx > 0:
-            print(f"... Waiting 30s for Groq API cooldown ...")
-            await asyncio.sleep(30)
+            await asyncio.sleep(1)
 
         thread_id = f"bench_{uuid.uuid4().hex[:8]}"
         config = {"configurable": {"thread_id": thread_id}}
@@ -100,6 +99,7 @@ async def run_benchmark():
             print(f"REASON: {eval_result.get('reason')}")
         
         except Exception as e:
+            traceback.print_exc()
             print(f"\n❌ ERROR running agent: {e}")
             results.append({"tc_id": tc["id"], "question": tc["question"], "verdict": "ERROR", "reason": str(e)})
 

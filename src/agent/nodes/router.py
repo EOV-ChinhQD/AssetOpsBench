@@ -169,11 +169,16 @@ class ParallelToolNode:
         last_msg = messages[-1]
         if not (hasattr(last_msg, "tool_calls") and last_msg.tool_calls):
             return {}
-        
+
+        lookup_candidates = self._collect_lookup_candidates(last_msg.tool_calls, state)
+        lookup_results = await self._run_auto_lookup(state, lookup_candidates)
+        normalized_tool_calls = self._normalize_tool_calls(last_msg.tool_calls, state)
+
         tasks = []
-        for tool_call in last_msg.tool_calls:
+        for tool_call in normalized_tool_calls:
             name = tool_call["name"]
             args = tool_call["args"]
+            logger.info(f"PARALLEL_EXEC: Tool {name} called with args: {args}")
             tool = self.registry.tools.get(name)
             meta = self.registry.metadata.get(name)
             
@@ -193,8 +198,149 @@ class ParallelToolNode:
                 )))
 
         # 🟢 THE PERFORMANCE BOOSTER: Parallel execution of multiple water queries!
-        results = await asyncio.gather(*tasks)
-        return {"messages": results}
+        gathered = await asyncio.gather(*tasks) if tasks else []
+        return {"messages": lookup_results + gathered}
+
+    def _collect_lookup_candidates(self, tool_calls: List[dict], state: AgentState) -> List[str]:
+        resolved_dma = state.get("resolved_dma") or {}
+        known_keys = {key.upper() for key in resolved_dma.keys()}
+        lookup_names = {"get_history", "get_forecast", "plot_dma"}
+        candidates = []
+        seen = set()
+
+        for tool_call in tool_calls:
+            name = tool_call.get("name")
+            if name not in lookup_names:
+                continue
+
+            args = tool_call.get("args", {})
+            candidate = args.get("dma_id") or args.get("dma_query")
+            if not candidate:
+                continue
+
+            candidate_str = str(candidate).strip()
+            if not candidate_str:
+                continue
+
+            candidate_key = candidate_str.upper()
+            if candidate_key in known_keys or candidate_key in seen:
+                continue
+
+            seen.add(candidate_key)
+            candidates.append(candidate_str)
+
+        return candidates
+
+    def _normalize_tool_calls(self, tool_calls: List[dict], state: AgentState) -> List[dict]:
+        normalized = []
+        fallback_dma = self._find_dma_from_lookup(tool_calls, state)
+        for tc in tool_calls:
+            normalized.append({
+                "name": tc.get("name"),
+                "args": self._normalize_args(tc.get("args", {}), state, fallback_dma),
+                "id": tc.get("id")
+            })
+        return normalized
+
+    def _normalize_args(self, args: dict, state: AgentState, fallback_dma: Optional[str]) -> dict:
+        normalized_args = dict(args)
+        canonical = self._resolve_canonical_dma(normalized_args, state)
+        if not canonical:
+            canonical = fallback_dma
+        if canonical and not normalized_args.get("dma_id"):
+            normalized_args["dma_id"] = canonical
+
+        normalized_args.pop("dma_code", None)
+        if normalized_args.get("dma_query") == canonical:
+            normalized_args.pop("dma_query", None)
+
+        return normalized_args
+
+    def _resolve_canonical_dma(self, args: dict, state: AgentState) -> Optional[str]:
+        resolved = state.get("resolved_dma", {})
+        if not resolved:
+            return None
+
+        for key in ("dma_id", "dma_query", "dma_code"):
+            value = args.get(key)
+            if not value:
+                continue
+            value_str = str(value).strip()
+            if not value_str:
+                continue
+            upper = value_str.upper()
+            if upper in resolved:
+                return resolved[upper]
+            return value_str
+
+        # Fallback to any known canonical DMA
+        for val in resolved.values():
+            if val:
+                return val
+
+        return None
+
+    def _find_dma_from_lookup(self, tool_calls: List[dict], state: AgentState) -> Optional[str]:
+        resolved = state.get("resolved_dma", {})
+        for tc in tool_calls:
+            if tc.get("name") != "get_dma_info":
+                continue
+            args = tc.get("args", {})
+            for key in ("dma_id", "dma_query", "dma_code"):
+                value = args.get(key)
+                if not value:
+                    continue
+                value_str = str(value).strip()
+                if not value_str:
+                    continue
+                upper = value_str.upper()
+                if upper in resolved:
+                    return resolved[upper]
+                return value_str
+        return None
+
+    async def _run_auto_lookup(self, state: AgentState, candidates: List[str]) -> List[ToolMessage]:
+        if not candidates:
+            return []
+
+        lookup_tool = self.registry.tools.get("get_dma_info")
+        if not lookup_tool:
+            return []
+
+        meta = self.registry.metadata.get("get_dma_info")
+        limit = (meta.max_concurrent if meta and meta.max_concurrent else self.default_max_concurrency)
+        results = []
+
+        for candidate in candidates:
+            logger.info(f"AUTO_LOOKUP: Ensuring DMA info for '{candidate}'")
+            lookup_msg = await self._run_tool(lookup_tool, {"dma_query": candidate}, str(uuid.uuid4()), concurrency_limit=limit)
+            self._merge_resolved(state, candidate, lookup_msg)
+            results.append(lookup_msg)
+
+        return results
+
+    def _merge_resolved(self, state: AgentState, query: str, tool_message: ToolMessage):
+        resolved = state.setdefault("resolved_dma", {})
+        query_key = str(query).strip()
+        if not query_key:
+            return
+
+        query_upper = query_key.upper()
+        canonical = None
+
+        try:
+            payload = json.loads(str(tool_message.content))
+            if payload.get("status") == "success":
+                canonical = str(payload.get("data", {}).get("dma_id", "")).strip()
+        except Exception:
+            pass
+
+        if canonical:
+            canonical_key = canonical.upper()
+            resolved[canonical_key] = canonical
+            resolved[query_upper] = canonical
+        else:
+            resolved[query_upper] = query_key
 
     def _get_semaphore(self, limit: Optional[int]):
         if not limit or limit <= 0:
@@ -250,21 +396,27 @@ def classify_tool_calls(state: AgentState) -> str:
     return "safe"
 
 # --- Phase 4: Unified Router (Permission + Logic) ---
-def route_after_core_with_permissions(state: AgentState) -> str:
-    """Unified router: Determines node AND checks permissions."""
+async def route_after_core_with_permissions(state: AgentState) -> str:
+    """Unified router: Action-First logic. Determines node AND checks permissions."""
+    messages = state.get("messages", [])
+    if not messages: return "synthesize"
+    
+    last_msg = messages[-1]
+    
+    # 🟢 ACTION-FIRST GUARD: If there are tool calls, we MUST execute them or review them.
+    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+        safety = classify_tool_calls(state)
+        logger.info(f"ROUTE: Tool calls detected. Safety={safety}")
+        return "human_review" if safety == "review" else "tool_node"
+
+    # Default to next_node from LLM if no actions
     next_node = state.get("next_node", "synthesize")
     
-    # If the LLM wants tools, check if they are safe
-    if next_node == "tools":
-        safety = classify_tool_calls(state)
-        # If unsafe, go to review. If safe, go to tool_node
-        return "human_review" if safety == "review" else "tool_node"
-    
-    # NEW: Architect (Planner) routes to the Technician (Executor)
-    if next_node == "executor":
-        return "executor"
-    
-    # Failsafe for syntax variations
-    if next_node == "response": return "synthesize"
-    
-    return next_node
+    # Architecture alignment
+    if next_node == "executor": return "executor"
+    if next_node in {"tools", "tool_node"}:
+         # Fallback in case tool_calls was missed but LLM requested it
+         return "tool_node"
+
+    logger.info(f"ROUTE: No actions detected. Moving to {next_node}")
+    return next_node if next_node != "response" else "synthesize"

@@ -5,6 +5,7 @@ import uuid
 from typing import List, Optional
 from langchain_core.messages import SystemMessage, AIMessage
 from ..state import AgentState
+from ..utils import parse_json_from_llm
 
 logger = logging.getLogger(__name__)
 
@@ -21,19 +22,30 @@ Nhiệm vụ: Thực hiện các bước trong kế hoạch (task_list) bằng c
 1. **Phân tích Nhiệm vụ**: Xem mục tiêu hiện tại là gì? 
 2. **Chọn Tool**: Chọn các tool phù hợp nhất để trả lời các phần còn thiếu. 
 3. **Thực thi Song song**: Tận dụng `asyncio.gather` bằng cách gọi nhiều tool cùng lúc nếu chúng độc lập.
-   - Ví dụ: `get_dma_info` + `get_history` + `get_forecast` cho cùng 1 DMA.
 
 ### NGUYÊN TẮC:
 - **KHÔNG LẬP KẾ HOẠCH MỚI**: Chỉ thực hiện kế hoạch của Architect (Planner).
-- **Tool-Only Intelligence**: Tập trung 100% vào việc sử dụng tool chính xác (mã DMA chuẩn, tháng/năm chuẩn).
-- **Dữ liệu**: Nếu có lỗi từ tool, hãy thử sửa tham số 1 lần trước khi báo cáo.
+- **Tuyệt đối không bịa Tool**: CHỈ sử dụng các công cụ có tên trong danh sách [CÔNG CỤ] bên dưới. KHÔNG tự ý gọi `get_status` hay bất kỳ tool nào khác.
+- **Đầy đủ Tham số**: KHÔNG BAO GIỜ gọi một tool mà phần `args` để trống. Bạn phải trích xuất mã hiệu (Vd: '01-LB') từ task.
+- **Tool-Only Intelligence**: Tập trung 100% vào việc sử dụng tool chính xác (mã DMA chuẩn, tháng/năm chuẩn). 
+- **Dữ liệu**: Nếu có lỗi từ tool, hãy thử sửa tham số 1 lần.
+
+### VÍ DỤ MẪU:
+Task: "Tra cứu 01-LB"
+```json
+{{
+  "internal_monologue": "Tôi cần xác thực mã hiệu 01-LB.",
+  "tool_calls": [{{ "name": "get_dma_info", "args": {{ "dma_query": "01-LB" }} }}],
+  "next_node": "tools"
+}}
+```
 
 ### ĐỊNH DẠNG (JSON):
 ```json
 {{
-  "internal_monologue": "Suy nghĩ kỹ thuật (Vd: 'Cần tra cứu lịch sử 01-LB cho 12 tháng qua...')",
-  "tool_calls": [{{ "name": "...", "args": {{ ... }} }}],
-  "next_node": "tools" hoặc "synthesize"
+  "internal_monologue": "Suy nghĩ kỹ thuật...",
+  "tool_calls": [{{ "name": "...", "args": {{ "dma_query": "..." }} }}],
+  "next_node": "tools"
 }}
 ```
 
@@ -64,13 +76,11 @@ def get_executor_node(llm, tools):
             ])
             
             raw_text = response.content
-            json_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL | re.IGNORECASE)
-            data_str = json_match.group(1).strip() if json_match else raw_text.strip()
-            
             try:
-                data = json.loads(data_str)
-            except:
-                data = json.loads(re.search(r"\{.*\}", data_str, re.DOTALL).group(0))
+                data = parse_json_from_llm(raw_text)
+            except Exception as e:
+                logger.error(f"Failed to parse Executor output: {e}")
+                return {"next_node": "synthesize"}
 
             raw_tool_calls = data.get("tool_calls", [])
             lc_tool_calls = []

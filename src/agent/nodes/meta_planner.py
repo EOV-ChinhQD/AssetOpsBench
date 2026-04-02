@@ -22,6 +22,9 @@ def get_meta_planner_node(llm):
         hints = dict(state.get("planner_hints", {}))
         instructions = notes or "Không phát hiện vấn đề mới."
 
+        task_list = state.get("task_list", [])
+        has_pending = any(t.get("status") in ["todo", "doing"] for t in task_list)
+
         if verdict == "retry":
             hints["retry_reason"] = notes or "Không rõ lỗi"
             if "không có dữ liệu" in instructions.lower() or "trống" in instructions.lower() or "rỗng" in instructions.lower():
@@ -33,8 +36,13 @@ def get_meta_planner_node(llm):
             hints.setdefault("strategy", "giảm concurrency hoặc kiểm tra tham số")
             next_node = "planner"
         else:
-            hints.setdefault("status", "check-passed")
-            next_node = "synthesize"
+            if has_pending:
+                next_node = "planner"
+                hints.setdefault("status", "pending-tasks")
+                logger.info("META_PLANNER: Pending tasks found, routing to planner")
+            else:
+                hints.setdefault("status", "check-passed")
+                next_node = "synthesize"
 
         update = {
             "planner_hints": hints,

@@ -133,7 +133,7 @@ def build_plot_payload(
         )
         df_hist = pd.read_sql(hist_query, engine, params={"dma": dma, "limit": limit_hist})
         for _, row in df_hist.iterrows():
-            all_data.append({"time": row["year_month"], "value": row["val"], "type": "Thực tế", "dma": dma})
+            all_data.append({"time": str(row["year_month"]), "value": row["val"], "type": "Thực tế", "dma": dma})
 
         if include_forecast:
             fore_query = text(
@@ -147,7 +147,7 @@ def build_plot_payload(
             )
             df_fore = pd.read_sql(fore_query, engine, params={"dma": dma})
             for _, row in df_fore.iterrows():
-                all_data.append({"time": row["year_month"], "value": row["val"], "type": "Dự báo", "dma": dma})
+                all_data.append({"time": str(row["year_month"]), "value": row["val"], "type": "Dự báo", "dma": dma})
 
     if not all_data:
         raise ValueError(f"Không tìm thấy dữ liệu cho các DMA: {', '.join(dma_list)}")

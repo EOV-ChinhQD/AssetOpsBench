@@ -50,12 +50,8 @@ async def save_memory(state: AgentState) -> dict:
             logger.info("Skipping real memory save for mock user.")
             return state
             
-        model_id = os.getenv("LLM_MODEL_NAME", "Qwen/Qwen3-8B")
-        # Ensure API key is set for LiteLLM (it often expects OPENAI_API_KEY for custom endpoints)
-        if "LITELLM_API_KEY" in os.environ and "OPENAI_API_KEY" not in os.environ:
-             os.environ["OPENAI_API_KEY"] = os.environ["LITELLM_API_KEY"]
-             
-        llm = LangchainLiteLLM(model_id=model_id)
+        # Use the unified LangchainLiteLLM which pulls from settings.py correctly
+        llm = LangchainLiteLLM()
         
         # Serialize messages to plain text for the LLM
         history_text = "\n".join([f"{m.type}: {m.content}" for m in messages[-4:]])

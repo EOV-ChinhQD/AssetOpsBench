@@ -125,6 +125,8 @@ async def build_graph(llm, db_path=None):
         route_after_core_with_permissions,
         {
             "executor": "executor",
+            "tool_node": "tool_node",
+            "human_review": "human_review",
             "synthesize": "synthesize"
         }
     )

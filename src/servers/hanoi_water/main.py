@@ -150,9 +150,11 @@ SQL:"""
                 logger.info(f"LLM_SQL_RAW (Attempt {attempt+1}): {raw_res}")
             
             sql_match = re.search(r"```sql\s*(.*?)\s*```", raw_res, re.DOTALL | re.IGNORECASE)
-            sql = sql_match.group(1).strip() if sql_match else raw_res.strip()
-            sql = sql.split(";")[-1] if ";" in sql and sql.endswith(";") else sql.strip()
-            sql = sql.lstrip("SQL:").strip().rstrip(';')
+            sql = sql_match.group(1) if sql_match else raw_res
+            sql = sql.strip()
+            if sql.upper().startswith("SQL:"):
+                sql = sql[len("SQL:"):].strip()
+            sql = sql.rstrip(";").strip()
 
             if any(kw in sql.upper() for kw in ["DROP", "DELETE", "UPDATE", "INSERT"]):
                 return wrap_tool_result("error", None, "Lệnh SQL không an toàn.")

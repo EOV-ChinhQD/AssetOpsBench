@@ -37,6 +37,7 @@ dependencies = [
     "google-genai>=1.70.0",
     "langchain-google-genai>=4.2.1",
     "google-generativeai>=0.8.6",
+    "vllm",
 ]
 
 [project.scripts]

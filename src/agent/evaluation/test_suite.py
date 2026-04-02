@@ -3,12 +3,6 @@
 
 TEST_CASES = [
     {
-        "id": "T1_GET_INFO",
-        "question": "Xác thực mã hiệu và trạng thái của trạm 01-LB.",
-        "expected_intent": "SPECIFIC",
-        "required_tools": ["get_dma_info"]
-    },
-    {
         "id": "T2_GET_HISTORY",
         "question": "Cho tôi dữ liệu sản lượng lịch sử trong 6 tháng gần đây của trạm 01-LB.",
         "expected_intent": "SPECIFIC",

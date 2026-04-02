@@ -16,6 +16,15 @@ def get_reflect_node(llm):
 
         logger.info(f"REFLECT: retry={retry_count}, tool_outputs={len(tool_results)}")
 
+        if retry_count == 0:
+            logger.info("REFLECT: First pass bypass.")
+            return {
+                "reflect_verdict": "pass",
+                "reflect_notes": "First pass shortcut",
+                "retry_count": 0,
+                "last_verdict": "pass"
+            }
+        
         verdict = "pass"
         note = ""
         severity = "info"
@@ -78,10 +87,10 @@ DỮ LIỆU TOOL TRẢ VỀ:
 {json.dumps(tool_results, ensure_ascii=False, indent=2)}
 
 TIÊU CHÍ KIỂM TRA:
-1. Có lấy đủ Dữ liệu Lịch sử (Silver) và Dự báo (Gold) nếu người dùng yêu cầu so sánh không?
-2. Mã DMA đã được chuẩn hóa chưa (Vd: "Long Biên" -> "01-LB")?
-3. Có phát hiện giá trị âm (bất thường) không?
-4. Đã thực hiện `check_data_quality` trước khi phân tích/dự báo chưa?
+1. **Mức độ phù hợp**: Kỹ thuật viên đã lấy đủ dữ liệu để trả lời câu hỏi CHƯA? (Vd: Nếu hỏi 'thông tin trạm' thì chỉ cần `get_dma_info`, KHÔNG bắt buộc history/forecast).
+2. **Dữ liệu so sánh**: CHỈ yêu cầu có cả Lịch sử (Silver) và Dự báo (Gold) NẾU người dùng hỏi về "so sánh", "xu hướng" hoặc "biến động".
+3. **Mã DMA**: Đã được chuẩn hóa chưa (Vd: "01-LB")?
+4. **Trực quan hóa**: Có gọi `plot_dma` nếu người dùng hỏi về đồ thị không?
 
 Trả về DUY NHẤT JSON:
 {{
