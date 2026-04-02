@@ -51,11 +51,22 @@ class ToolExecutorNode:
 
     def _get_lookup_candidates(self, calls, state) -> List[str]:
         resolved = state.get("resolved_dma", {})
+        from src.agent.services.global_registry import global_dma_registry
+        
         candidates = []
         for tc in calls:
             q = tc.get("args", {}).get("dma_query") or tc.get("args", {}).get("dma_id")
-            if q and q.upper() not in resolved:
-                candidates.append(str(q))
+            if not q: continue
+            
+            q_str = str(q).upper()
+            if q_str not in resolved:
+                # Check Global Cache
+                global_id = global_dma_registry.get(q_str)
+                if global_id:
+                    logger.info(f"ROUTER: Global cache hit for {q_str} -> {global_id}")
+                    resolved[q_str] = global_id
+                else:
+                    candidates.append(str(q))
         return list(set(candidates))
 
     async def _auto_lookup(self, state, candidates) -> List[ToolMessage]:
@@ -70,6 +81,7 @@ class ToolExecutorNode:
 
     def _update_state_cache(self, state, query, msg):
         resolved = state.setdefault("resolved_dma", {})
+        from src.agent.services.global_registry import global_dma_registry
         try:
             data = json.loads(str(msg.content))
             if data.get("status") == "success":
@@ -77,6 +89,8 @@ class ToolExecutorNode:
                 if dma_id:
                     resolved[query.upper()] = dma_id
                     resolved[dma_id.upper()] = dma_id
+                    # Update Global Registry
+                    global_dma_registry.update(query, dma_id)
         except: pass
 
     def _normalize_calls(self, calls, state) -> List[dict]:

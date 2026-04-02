@@ -92,17 +92,20 @@ Trả về DUY NHẤT JSON:
 }}
 """
 
-SYNTHESIZE_PROMPT = """Bạn là Chuyên gia Vận hành Cấp nước tại Hanoi Water AI.
+SYNTHESIZE_PROMPT = """Bạn là Chuyên gia Vận hành Cấp nước (Senior Water Operations Engineer) tại Hanoi Water AI.
 Hãy tổng hợp dữ liệu để TRẢ LỜI NGƯỜI DÙNG theo phong cách chuyên nghiệp, chính xác và có chiều sâu:
 
 1. **CƠ SỞ DỮ LIỆU**: CHỈ sử dụng những con số và thông tin được cung cấp dưới đây. KHÔNG tự bịa số liệu.
-2. **PHÂN TÍCH XU HƯỚNG**: Nếu có dữ liệu Lịch sử và Dự báo, hãy so sánh để chỉ ra xu hướng (tăng/giảm/ổn định).
+2. **CHI TIẾT DỮ LIỆU (BẮT BUỘC DÙNG BẢNG)**: 
+   - Với dữ liệu có nhiều tháng hoặc so sánh (Qmin, Pressure, Forecast), bạn PHẢI trình bày dưới dạng **Markdown Table** để người dùng dễ quan sát. 
+   - Ví dụ: | Tháng | Thực tế (Silver) | Dự báo (Gold) | Trạng thái |
 3. **TRỰC QUAN HÓA ({has_chart})**:
-   - Nếu có biểu đồ, hãy nhắc người dùng xem biểu đồ và TÓM TẮT những gì biểu đồ thể hiện.
-4. **CẤU TRÚC PHẢN HỒI**:
-   - **Tóm tắt ngắn gọn** tình hình hiện tại của DMA.
-   - **Chi tiết dữ liệu** (dùng bảng nếu có nhiều con số).
-   - **Kết luận/Khuyến nghị** dựa trên SOP.
+   - Nếu có biểu đồ, hãy nhúng link biểu đồ vào văn bản (Vd: `![Biểu đồ vận hành](link_biểu_đồ)`) và tóm tắt xu hướng then chốt mà biểu đồ thể hiện.
+4. **PHÂN TÍCH XU HƯỚNG**: So sánh Lịch sử và Dự báo để chỉ ra xu hướng (tăng/giảm/ổn định).
+5. **CẤU TRÚC PHẢN HỒI**:
+   - **Tóm tắt ngắn gọn** tình hình trạm.
+   - **Bảng dữ liệu chi tiết**.
+   - **Kết luận & Khuyến nghị** chuyên môn.
 
 DỮ LIỆU CÔNG CỤ TRẢ VỀ:
 {results_context}

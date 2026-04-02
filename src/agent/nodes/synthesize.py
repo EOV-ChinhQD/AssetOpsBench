@@ -23,9 +23,11 @@ def get_synthesize_node(llm):
         results_context = format_tool_results(state["messages"])
         
         # 3. Prompting
-        has_chart = "CÓ BIỂU ĐỒ" if ("chart_json" in chart_update or "plot_url" in chart_update) else "KHÔNG"
+        plot_url = chart_update.get("plot_url", "")
+        has_chart_status = f"CÓ BIỂU ĐỒ (Link: {plot_url})" if plot_url else "KHÔNG CÓ BIỂU ĐỒ"
+        
         prompt = SYNTHESIZE_PROMPT.format(
-            has_chart=has_chart,
+            has_chart=has_chart_status,
             results_context=results_context
         )
         

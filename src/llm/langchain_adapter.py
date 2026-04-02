@@ -22,19 +22,33 @@ class LangchainLiteLLM(BaseChatModel):
         return "unified_llm"
 
     def _generate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs: Any) -> ChatResult:
+        """Synchronous wrapper (use _agenerate if possible in LangGraph)"""
+        import asyncio
+        loop = None
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        if loop.is_running():
+            # Already in an event loop, this is risky
+            logger.warning("LangchainLiteLLM._generate called inside a running loop. This might block.")
+            import nest_asyncio
+            nest_asyncio.apply()
+            
+        content = asyncio.run(self._agenerate(messages, stop, **kwargs))
+        return content
+
+    async def _agenerate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs: Any) -> ChatResult:
         formatted_messages = []
         for msg in messages:
             role = "user"
             if isinstance(msg, SystemMessage): role = "system"
             elif isinstance(msg, AIMessage): role = "assistant"
+            elif isinstance(msg, HumanMessage): role = "user"
+            
             formatted_messages.append({"role": role, "content": msg.content})
             
-        content = self._client.generate(formatted_messages)
-        if isinstance(content, dict) or isinstance(content, list):
-             import json
-             content = json.dumps(content, ensure_ascii=False)
+        content = await self._client.generate(formatted_messages)
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
-
-    async def _agenerate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs: Any) -> ChatResult:
-        import asyncio
-        return await asyncio.to_thread(self._generate, messages, stop, **kwargs)
